@@ -1,8 +1,8 @@
 # Tropic Engine
 
 ## Requirements
-[CVector](http://192.168.1.122:3001/ProgrammingCube/c_vector)  
-[cJSON](https://github.com/DaveGamble/cJSON)
+[CVector](http://192.168.1.122:3001/ProgrammingCube/c_vector){:target="_blank"}  
+[cJSON](https://github.com/DaveGamble/cJSON){:target="_blank"}
 
 Tropic Engine is an extremely simple game engine in C that utilizes a few C tools and OpenGL 3.3+.  
 The goal of Tropic Engine is rapid development of extremely simple 3D graphic shapes, allowing the game programmer to focus on gameplay mechanics and shaders totally separately.
