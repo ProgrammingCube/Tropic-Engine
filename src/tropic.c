@@ -33,7 +33,7 @@ bool Tropic_init(Tropic* self)
 
 bool Tropic_parseLevel(Tropic* self, const char* level_path)
 {
-    //printf("Parsing level from path: %s\n", level_path);
+    printf("Parsing level from path: %s\n", level_path);
     char* level_text_buffer = NULL;
 
     //level_text_buffer = raw_json_to_str( level_path );
