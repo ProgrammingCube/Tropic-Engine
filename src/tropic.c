@@ -1,6 +1,8 @@
 #include "tropic.h"
+#include "level_parser.h"
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 static void _initializeCurrentScene(Tropic* self)
 {
@@ -14,11 +16,23 @@ static void _initializeCurrentScene(Tropic* self)
     self->current_scene->on_exit = NULL;
 }
 
+static char* my_strdup(const char *s)
+{
+    if (!s) return NULL;
+    size_t n = strlen(s) + 1;
+    char *d = (char*)malloc(n);
+    if (!d) return NULL;
+    memcpy(d, s, n);
+    return d;
+}
+
+/* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
+
 bool Tropic_init(Tropic* self)
 {
     // Initialize the game state
-    self->state.game_title = "Tropic Engine Test";
-    self->state.level_name = "Test Level 1";
+    self->state.game_title = my_strdup("Tropic Engine Test");
+    self->state.level_name = my_strdup("Test Level 1");
     self->state.play_speed = 1.0f;
 
     /* Allocate and initialize the current scene */
@@ -33,10 +47,24 @@ bool Tropic_init(Tropic* self)
 
 bool Tropic_parseLevel(Tropic* self, const char* level_path)
 {
-    printf("Parsing level from path: %s\n", level_path);
-    char* level_text_buffer = NULL;
+    LevelSpec *spec = level_parse_file(level_path);
+    if (!spec) {
+        fprintf(stderr, "Failed to parse level file: %s\n", level_path);
+        return false;
+    }
 
-    //level_text_buffer = raw_json_to_str( level_path );
+    /* Replace state strings (free previous) */
+    if (self->state.game_title) free(self->state.game_title);
+    if (self->state.level_name) free(self->state.level_name);
+    self->state.game_title = my_strdup(spec->game_title);
+    self->state.level_name = my_strdup(spec->level_name);
+    self->state.play_speed = (float)spec->play_speed;
+
+    printf("game_title: %s\n", self->state.game_title);
+    printf("level_name: %s\n", self->state.level_name);
+    printf("play_speed: %f\n", self->state.play_speed);
+
+    level_free(spec);
     return true;
 }
 
@@ -54,6 +82,12 @@ void Tropic_cleanup(Tropic* self)
         self->current_scene = NULL;
     }
 
-    /* Note: `state.game_title` and `state.level_name` are currently string
-       literals; only free them here if they were dynamically allocated. */
+    if (self->state.game_title) {
+        free(self->state.game_title);
+        self->state.game_title = NULL;
+    }
+    if (self->state.level_name) {
+        free(self->state.level_name);
+        self->state.level_name = NULL;
+    }
 }
