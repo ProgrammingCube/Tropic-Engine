@@ -1,7 +1,8 @@
 #include "engine_test.h"
 
-int main( char argc, char *argv[] )
+int main( int argc, char *argv[] )
 {
+    (void)argc; (void)argv; // Unused parameters
     Tropic engine;
 
     Tropic_init(&engine);

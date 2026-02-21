@@ -7,6 +7,7 @@
 
 typedef enum eObjectType
 {
+    TYPE_GENERIC,
     TYPE_PLAYER,
     TYPE_PLATFORM,
     TYPE_JUMPPAD,

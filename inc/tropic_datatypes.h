@@ -1,25 +1,17 @@
 #ifndef TROPIC_DATATYPES_H
 #define TROPIC_DATATYPES_H
 
-typedef struct sPosition
-{
-    float x;
-    float y;
-    float z;
-} Position;
+#include "handles.h"
+#include <cglm/vec3.h>
 
-typedef struct sScale
-{
-    float x;
-    float y;
-    float z;
-} Scale;
+/* replace Position with cglm vec3 typedef */
+typedef vec3 Position;
+typedef vec3 Scale;
+typedef vec3 Rotation;
 
-typedef struct sRotation
-{
-    float x;
-    float y;
-    float z;
-} Rotation;
+/*
+typedef uint32_t TropicID;
+typedef uint32_t ObjectID;
+*/
 
 #endif /* TROPIC_DATATYPES_H */

@@ -2,11 +2,12 @@
 #define SCENE_H
 #include <vector.h>
 #include "object.h"
+#include "handles.h"
 
 typedef struct sScene
 {
     char *name;
-    vector(Object) entities;                    // global vector of all entities in the game
+    vector(ObjectID) entities;                    // global vector of all entity handles in the game
     // Add more fields as needed for your scene
     void (*on_enter)(struct sScene* self);
     void (*on_update)(struct sScene* self, float delta_time);

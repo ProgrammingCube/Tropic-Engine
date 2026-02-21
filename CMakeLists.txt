@@ -12,6 +12,13 @@ find_package(CVector REQUIRED)
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)
 find_package(OpenGL REQUIRED)
+include(FetchContent)
+FetchContent_Declare(
+	cglm
+	GIT_REPOSITORY https://github.com/recp/cglm.git
+	GIT_TAG v0.9.0
+)
+FetchContent_MakeAvailable(cglm)
 
 # Collect all C sources from src/ (reconfigures when new files are added)
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.c)
@@ -24,11 +31,12 @@ add_executable(tropic_engine ${SOURCES})
 # Use headers from inc/
 target_include_directories(tropic_engine PRIVATE ${CMAKE_SOURCE_DIR}/inc)
 
-target_compile_options(tropic_engine PRIVATE -g)
+target_compile_options(tropic_engine PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE )
 target_link_libraries(tropic_engine PRIVATE
 	${CJSON_LIBRARIES}
 	CVector::vector
 	GLEW::GLEW
 	GLUT::GLUT
 	OpenGL::GL
+	cglm
 )

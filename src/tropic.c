@@ -16,28 +16,25 @@ static void _initializeCurrentScene(Tropic* self)
     self->current_scene->on_exit = NULL;
 }
 
-static char* my_strdup(const char *s)
-{
-    if (!s) return NULL;
-    size_t n = strlen(s) + 1;
-    char *d = (char*)malloc(n);
-    if (!d) return NULL;
-    memcpy(d, s, n);
-    return d;
-}
-
 /* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
 
 bool Tropic_init(Tropic* self)
 {
-    // Initialize the game state
-    self->state.game_title = my_strdup("Tropic Engine Test");
-    self->state.level_name = my_strdup("Test Level 1");
+    if (!self) return 0;
+
+    /* Initialize game state strings */
+    self->state.game_title = strdup("Tropic Engine Test");
+    self->state.level_name = strdup("Test Level 1");
     self->state.play_speed = 1.0f;
 
     /* Allocate and initialize the current scene */
     self->current_scene = malloc(sizeof(*self->current_scene));
     if (!self->current_scene) return false;
+
+    /* Initialize resource pools */
+    self->objects = idmgr_create(256);
+    self->meshes = idmgr_create(128);
+    self->textures = idmgr_create(128);
 
     // Initialize the current scene with default values
     _initializeCurrentScene(self);
@@ -56,9 +53,24 @@ bool Tropic_parseLevel(Tropic* self, const char* level_path)
     /* Replace state strings (free previous) */
     if (self->state.game_title) free(self->state.game_title);
     if (self->state.level_name) free(self->state.level_name);
-    self->state.game_title = my_strdup(spec->game_title);
-    self->state.level_name = my_strdup(spec->level_name);
+    self->state.game_title = strdup(spec->game_title);
+    self->state.level_name = strdup(spec->level_name);
     self->state.play_speed = (float)spec->play_speed;
+
+    /* Copy object data ( platforms, spikes, jumppads ) to self->current_scene.entities */
+    if (self->current_scene->entities) {
+        vector_free(self->current_scene->entities);
+        self->current_scene->entities = NULL;
+    }
+
+    /* Example: create a default object and register it (store handle in scene) */
+    Object def = {0};
+    ObjectID h = Tropic_newObject(self, &def);
+    if (h != 0) {
+        vector_push_back(self->current_scene->entities, h);
+    }
+
+
 
     printf("game_title: %s\n", self->state.game_title);
     printf("level_name: %s\n", self->state.level_name);
@@ -66,6 +78,40 @@ bool Tropic_parseLevel(Tropic* self, const char* level_path)
 
     level_free(spec);
     return true;
+}
+
+ObjectID Tropic_newObject(Tropic* self, const Object* proto)
+{
+    if (!self) return 0;
+    Object *o = (Object*)malloc(sizeof(Object));
+    if (!o) return 0;
+    if (proto) memcpy(o, proto, sizeof(Object));
+    else memset(o, 0, sizeof(Object));
+
+    /* ensure sensible defaults */
+    if (o->type == 0) o->type = TYPE_GENERIC;
+    o->active = 1;
+
+    Handle h = idmgr_alloc(self->objects, o);
+    if (h == 0) { free(o); return 0; }
+    o->id = (uint32_t)h;
+    return (ObjectID)h;
+}
+
+Object* Tropic_getObject(Tropic* self, ObjectID id)
+{
+    if (!self) return NULL;
+    return (Object*)idmgr_get(self->objects, id);
+}
+
+bool Tropic_freeObject(Tropic* self, ObjectID id)
+{
+    if (!self) return false;
+    Object *o = (Object*)idmgr_get(self->objects, id);
+    if (!o) return false;
+    bool ok = idmgr_free(self->objects, id);
+    if (ok) free(o);
+    return ok;
 }
 
 
@@ -89,5 +135,19 @@ void Tropic_cleanup(Tropic* self)
     if (self->state.level_name) {
         free(self->state.level_name);
         self->state.level_name = NULL;
+    }
+
+    /* Free all objects/meshes/textures payloads and destroy managers */
+    if (self->objects) {
+        idmgr_free_all(self->objects, free);
+        self->objects = NULL;
+    }
+    if (self->meshes) {
+        idmgr_free_all(self->meshes, free);
+        self->meshes = NULL;
+    }
+    if (self->textures) {
+        idmgr_free_all(self->textures, free);
+        self->textures = NULL;
     }
 }
