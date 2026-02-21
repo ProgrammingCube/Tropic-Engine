@@ -12,6 +12,8 @@
 #include "scene.h"
 #include "handles.h"
 #include "id_manager.h"
+#include "mesh.h"
+#include "texture.h"
 
 typedef struct sTropic
 {
@@ -38,6 +40,16 @@ bool Tropic_parseLevel(Tropic* self, const char* level_path);
 ObjectID Tropic_newObject(Tropic* self, const Object* proto);
 Object*  Tropic_getObject(Tropic* self, ObjectID id);
 bool      Tropic_freeObject(Tropic* self, ObjectID id);
+
+/* Mesh pool APIs */
+MeshID   Tropic_newMesh(Tropic* self, const Mesh* proto);
+Mesh*    Tropic_getMesh(Tropic* self, MeshID id);
+bool     Tropic_freeMesh(Tropic* self, MeshID id);
+
+/* Texture pool APIs */
+TextureID Tropic_newTexture(Tropic* self, const Texture* proto);
+Texture*  Tropic_getTexture(Tropic* self, TextureID id);
+bool      Tropic_freeTexture(Tropic* self, TextureID id);
 
 void Tropic_update(Tropic* self, float delta_time);
 void Tropic_render(Tropic* self);

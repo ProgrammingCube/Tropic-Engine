@@ -11,6 +11,7 @@ This isn't a full-on engine like Unity where there is scripting, texturing, shad
 
 
 # Functions
-`Tropic_init( &engine )`  
-`Tropic_parseLevel( &engine, const char *level_path )`  
+`Tropic_init( Tropic* engine )`  
+`Tropic_parseLevel( Tropic* engine, const char* level_path )`  
+`Tropic_newObject( Tropic* engine, const Object* obj )`
 `Tropic_cleanup( &engine )`

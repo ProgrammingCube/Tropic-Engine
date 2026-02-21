@@ -114,6 +114,66 @@ bool Tropic_freeObject(Tropic* self, ObjectID id)
     return ok;
 }
 
+/* Mesh pool functions */
+MeshID Tropic_newMesh(Tropic* self, const Mesh* proto)
+{
+    if (!self) return 0;
+    Mesh *m = (Mesh*)malloc(sizeof(Mesh));
+    if (!m) return 0;
+    if (proto) memcpy(m, proto, sizeof(Mesh));
+    else memset(m, 0, sizeof(Mesh));
+    Handle h = idmgr_alloc(self->meshes, m);
+    if (h == 0) { free(m); return 0; }
+    m->id = (uint32_t)h;
+    return (MeshID)h;
+}
+
+Mesh* Tropic_getMesh(Tropic* self, MeshID id)
+{
+    if (!self) return NULL;
+    return (Mesh*)idmgr_get(self->meshes, id);
+}
+
+bool Tropic_freeMesh(Tropic* self, MeshID id)
+{
+    if (!self) return false;
+    Mesh *m = (Mesh*)idmgr_get(self->meshes, id);
+    if (!m) return false;
+    bool ok = idmgr_free(self->meshes, id);
+    if (ok) free(m);
+    return ok;
+}
+
+/* Texture pool functions */
+TextureID Tropic_newTexture(Tropic* self, const Texture* proto)
+{
+    if (!self) return 0;
+    Texture *t = (Texture*)malloc(sizeof(Texture));
+    if (!t) return 0;
+    if (proto) memcpy(t, proto, sizeof(Texture));
+    else memset(t, 0, sizeof(Texture));
+    Handle h = idmgr_alloc(self->textures, t);
+    if (h == 0) { free(t); return 0; }
+    t->id = (uint32_t)h;
+    return (TextureID)h;
+}
+
+Texture* Tropic_getTexture(Tropic* self, TextureID id)
+{
+    if (!self) return NULL;
+    return (Texture*)idmgr_get(self->textures, id);
+}
+
+bool Tropic_freeTexture(Tropic* self, TextureID id)
+{
+    if (!self) return false;
+    Texture *t = (Texture*)idmgr_get(self->textures, id);
+    if (!t) return false;
+    bool ok = idmgr_free(self->textures, id);
+    if (ok) free(t);
+    return ok;
+}
+
 
 void Tropic_cleanup(Tropic* self)
 {
