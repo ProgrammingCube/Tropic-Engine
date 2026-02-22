@@ -38,6 +38,7 @@ static char* raw_json_to_str(const char* file_name)
 
 LevelSpec* parseLevel(const char* path, int* out_num_objects)
 {
+    (void)out_num_objects; // Unused for now, but could be set to total objects parsed if needed
     char *raw = raw_json_to_str( path );
     if ( !raw ) return NULL;
 

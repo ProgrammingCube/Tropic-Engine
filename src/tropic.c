@@ -111,7 +111,8 @@ __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
                                                      int* out_num_objects
                                                     )
 {
-    // Basic default parsing logic here
+    (void)engine; (void)file; (void)out_num_objects;
+    return NULL;
 }
 
 ObjectID Tropic_newObject(Tropic* self, const Object* proto)
