@@ -22,26 +22,30 @@ int main( int argc, char *argv[] )
 
     int num_objects = 0;
     LevelSpec* parsedData = parseLevel("../assets/levels/test_level.json", &num_objects );
+    ObjectSpec* objects = levelspec_to_objects( parsedData, engine, &num_objects );
 
-    Tropic_LoadObjects( engine, parsedData, num_objects );
+    Tropic_LoadObjects( engine, objects, num_objects );
 
-
-
-
-
-
-
-
-
-
-
-
-    Tropic_parseLevel(engine, "../assets/levels/test_level.json");
-
-    /* print level info from engine->state */
+     /* print level info from engine->state */
     TropicGameState* state = Tropic_getGameState(engine);
     printf("Level: %s (%s)\n", state->game_title, state->level_name);
     printf("Play Speed: %f\n", state->play_speed);
+
+
+
+
+
+
+
+
+
+
+    
+
+    /* print level info from engine->state */
+    //TropicGameState* state = Tropic_getGameState(engine);
+    //printf("Level: %s (%s)\n", state->game_title, state->level_name);
+    //printf("Play Speed: %f\n", state->play_speed);
 
     /* print objects from engine Scene vector(ObjectID) entities */
     Tropic* e = Tropic_getById(engine);

@@ -1,4 +1,22 @@
 #include "level_loader.h"
+#include "tropic.h"
+#include <string.h>
+#include <stdlib.h>
+
+/* Map textual type names from level files to engine ObjectType enum. */
+static ObjectType string_to_type(const char* s)
+{
+    if (!s) return TYPE_GENERIC;
+    if (strcmp(s, "platform") == 0) return TYPE_PLATFORM;
+    if (strcmp(s, "spike") == 0) return TYPE_SPIKE;
+    if (strcmp(s, "jumppad") == 0) return TYPE_JUMPPAD;
+    if (strcmp(s, "cube") == 0) return TYPE_CUBE;
+    if (strcmp(s, "square") == 0) return TYPE_SQUARE;
+    if (strcmp(s, "mesh") == 0) return TYPE_MESH;
+    if (strcmp(s, "sphere") == 0) return TYPE_SPHERE;
+    if (strcmp(s, "particle") == 0) return TYPE_PARTICLE;
+    return TYPE_GENERIC;
+}
 
 static char* raw_json_to_str(const char* file_name)
 {
@@ -18,7 +36,7 @@ static char* raw_json_to_str(const char* file_name)
     return tmp_buffer;
 }
 
-ObjectSpec* parseLevel(const char* path, int* out_num_objects)
+LevelSpec* parseLevel(const char* path, int* out_num_objects)
 {
     char *raw = raw_json_to_str( path );
     if ( !raw ) return NULL;
@@ -197,4 +215,81 @@ ObjectSpec* parseLevel(const char* path, int* out_num_objects)
     }
 
     return spec;
+}
+
+ObjectSpec* levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_objects)
+{
+    if (!spec) {
+        if (out_num_objects) *out_num_objects = 0;
+        return NULL;
+    }
+
+    /* apply metadata to engine game state if available */
+    if (engine) {
+        TropicGameState* state = Tropic_getGameState(engine);
+        if (state) {
+            if (state->game_title) free(state->game_title);
+            if (state->level_name) free(state->level_name);
+            state->game_title = spec->game_title ? strdup(spec->game_title) : strdup("Untitled Game");
+            state->level_name = spec->level_name ? strdup(spec->level_name) : strdup("Untitled Level");
+            state->play_speed = (float)spec->play_speed;
+        }
+    }
+
+    size_t total = spec->platform_count + spec->spikes_count + spec->jumppads_count;
+    if (total == 0) {
+        if (out_num_objects) *out_num_objects = 0;
+        return NULL;
+    }
+
+    ObjectSpec* arr = (ObjectSpec*)malloc(total * sizeof(ObjectSpec));
+    if (!arr) {
+        if (out_num_objects) *out_num_objects = 0;
+        return NULL;
+    }
+
+    size_t idx = 0;
+    for (size_t i = 0; i < spec->platform_count; i++) {
+        strncpy(arr[idx].type, spec->platforms[i].type, sizeof(arr[idx].type));
+        arr[idx].type[sizeof(arr[idx].type) - 1] = '\0';
+        arr[idx].type_code = string_to_type(spec->platforms[i].type);
+        memcpy(arr[idx].position, spec->platforms[i].position, sizeof(vec3));
+        memcpy(arr[idx].scale, spec->platforms[i].scale, sizeof(vec3));
+        memcpy(arr[idx].rotation, spec->platforms[i].rotation, sizeof(vec3));
+        idx++;
+    }
+
+    for (size_t i = 0; i < spec->spikes_count; i++) {
+        strncpy(arr[idx].type, spec->spikes[i].type, sizeof(arr[idx].type));
+        arr[idx].type[sizeof(arr[idx].type) - 1] = '\0';
+        arr[idx].type_code = string_to_type(spec->spikes[i].type);
+        memcpy(arr[idx].position, spec->spikes[i].position, sizeof(vec3));
+        memcpy(arr[idx].scale, spec->spikes[i].scale, sizeof(vec3));
+        memcpy(arr[idx].rotation, spec->spikes[i].rotation, sizeof(vec3));
+        idx++;
+    }
+
+    for (size_t i = 0; i < spec->jumppads_count; i++) {
+        strncpy(arr[idx].type, spec->jumppads[i].type, sizeof(arr[idx].type));
+        arr[idx].type[sizeof(arr[idx].type) - 1] = '\0';
+        arr[idx].type_code = string_to_type(spec->jumppads[i].type);
+        memcpy(arr[idx].position, spec->jumppads[i].position, sizeof(vec3));
+        memcpy(arr[idx].scale, spec->jumppads[i].scale, sizeof(vec3));
+        memcpy(arr[idx].rotation, spec->jumppads[i].rotation, sizeof(vec3));
+        idx++;
+    }
+
+    if (out_num_objects) *out_num_objects = (int)total;
+    return arr;
+}
+
+void level_free(LevelSpec *spec)
+{
+    if (!spec) return;
+    if (spec->game_title) free(spec->game_title);
+    if (spec->level_name) free(spec->level_name);
+    if (spec->platforms) free(spec->platforms);
+    if (spec->spikes) free(spec->spikes);
+    if (spec->jumppads) free(spec->jumppads);
+    free(spec);
 }

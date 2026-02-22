@@ -94,7 +94,7 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 
     for (int i = 0; i < num_objects; i++) {
         Object proto = {0};
-        strncpy(proto.type, objects[i].type, sizeof(proto.type));
+        proto.type = objects[i].type_code;
         memcpy(proto.pos, objects[i].position, sizeof(vec3));
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
