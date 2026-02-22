@@ -32,19 +32,21 @@ typedef struct sTropic
 
 } Tropic;
 
+
+/* Engine handle APIs */
+TropicID Tropic_create(void);
+Tropic*  Tropic_getById(TropicID id);
+TropicID Tropic_getByPtr(Tropic* ptr);
+bool     Tropic_destroy(TropicID id);
+TropicGameState* Tropic_getGameState( TropicID id );
+
 /* Core lifecycle */
-bool Tropic_init(Tropic* self);
-bool Tropic_parseLevel(Tropic* self, const char* level_path);
+bool Tropic_parseLevel(TropicID engine, const char* level_path);
 
 /* Object pool APIs */
 ObjectID Tropic_newObject(Tropic* self, const Object* proto);
 Object*  Tropic_getObject(Tropic* self, ObjectID id);
 bool      Tropic_freeObject(Tropic* self, ObjectID id);
-
-/* Engine handle APIs */
-TropicID Tropic_create(void);
-Tropic*  Tropic_get(TropicID id);
-bool     Tropic_destroy(TropicID id);
 
 /* Mesh pool APIs */
 MeshID   Tropic_newMesh(Tropic* self, const Mesh* proto);

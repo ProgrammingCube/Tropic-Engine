@@ -18,7 +18,7 @@ static void _initializeCurrentScene(Tropic* self)
 
 /* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
 
-bool Tropic_init(Tropic* self)
+static bool _Tropic_init(Tropic* self)
 {
     if (!self) return 0;
 
@@ -50,16 +50,22 @@ TropicID Tropic_create(void)
     if (!_engines_mgr) _engines_mgr = idmgr_create(16);
     Tropic *e = (Tropic*)malloc(sizeof(Tropic));
     if (!e) return 0;
-    if (!Tropic_init(e)) { free(e); return 0; }
+    if (!_Tropic_init(e)) { free(e); return 0; }
     Handle h = idmgr_alloc(_engines_mgr, e);
     if (h == 0) { Tropic_cleanup(e); free(e); return 0; }
     return (TropicID)h;
 }
 
-Tropic* Tropic_get(TropicID id)
+Tropic* Tropic_getById(TropicID id)
 {
     if (!_engines_mgr) return NULL;
     return (Tropic*)idmgr_get(_engines_mgr, id);
+}
+
+TropicID Tropic_getByPtr(Tropic* ptr)
+{
+    if (!_engines_mgr || !ptr) return 0;
+    return (TropicID)idmgr_get_by_payload(_engines_mgr, ptr);
 }
 
 bool Tropic_destroy(TropicID id)
@@ -74,8 +80,16 @@ bool Tropic_destroy(TropicID id)
     return true;
 }
 
-bool Tropic_parseLevel(Tropic* self, const char* level_path)
+TropicGameState* Tropic_getGameState( TropicID id )
 {
+    Tropic *e = Tropic_getById(id);
+    if (!e) return NULL;
+    return &e->state;
+}
+
+bool Tropic_parseLevel(TropicID engine, const char* level_path)
+{
+    Tropic *self = Tropic_getById( engine );
     LevelSpec *spec = level_parse_file(level_path);
     if (!spec) {
         fprintf(stderr, "Failed to parse level file: %s\n", level_path);
@@ -108,11 +122,31 @@ bool Tropic_parseLevel(Tropic* self, const char* level_path)
         }
     }
 
-    printf("game_title: %s\n", self->state.game_title);
-    printf("level_name: %s\n", self->state.level_name);
-    printf("play_speed: %f\n", self->state.play_speed);
+    /* copy spikes to scene as generic objects (no explicit spike enum present) */
+    for (size_t i = 0; i < spec->spikes_count; i++) {
+        Object proto = {0};
+        proto.type = TYPE_SPIKE;
+        memcpy(proto.pos, spec->spikes[i].position, sizeof(vec3));
+        memcpy(proto.scale, spec->spikes[i].scale, sizeof(vec3));
+        memcpy(proto.rot, spec->spikes[i].rotation, sizeof(vec3));
+        ObjectID obj_id = Tropic_newObject(self, &proto);
+        if (obj_id != 0) {
+            vector_push_back(self->current_scene->entities, obj_id);
+        }
+    }
 
-    
+    /* copy jumppads to scene and tag as TYPE_JUMPPAD */
+    for (size_t i = 0; i < spec->jumppads_count; i++) {
+        Object proto = {0};
+        proto.type = TYPE_JUMPPAD;
+        memcpy(proto.pos, spec->jumppads[i].position, sizeof(vec3));
+        memcpy(proto.scale, spec->jumppads[i].scale, sizeof(vec3));
+        memcpy(proto.rot, spec->jumppads[i].rotation, sizeof(vec3));
+        ObjectID obj_id = Tropic_newObject(self, &proto);
+        if (obj_id != 0) {
+            vector_push_back(self->current_scene->entities, obj_id);
+        }
+    }
 
     level_free(spec);
     return true;

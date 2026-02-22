@@ -128,6 +128,18 @@ bool idmgr_is_valid(IDManager* mgr, Handle h)
     return mgr->gens[idx] == gen && mgr->slots[idx] != NULL;
 }
 
+Handle idmgr_get_by_payload(IDManager* mgr, void* payload)
+{
+    if (!mgr || !payload) return 0;
+    for (uint32_t i = 0; i < mgr->capacity; ++i) {
+        if (mgr->slots[i] == payload) {
+            uint16_t gen = mgr->gens[i];
+            return encode_handle(i, gen);
+        }
+    }
+    return 0;
+}
+
 void idmgr_free_all(IDManager* mgr, void (*free_fn)(void*))
 {
     if (!mgr) return;

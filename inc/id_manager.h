@@ -26,6 +26,9 @@ bool idmgr_free(IDManager* mgr, Handle h);
 /* Check if a handle is valid (not stale). */
 bool idmgr_is_valid(IDManager* mgr, Handle h);
 
+/* Retrieve handle for a payload pointer, or 0 if not found. */
+Handle idmgr_get_by_payload(IDManager* mgr, void* payload);
+
 /* Free all payloads using provided function, then destroy the manager. */
 void idmgr_free_all(IDManager* mgr, void (*free_fn)(void*));
 

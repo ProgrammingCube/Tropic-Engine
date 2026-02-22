@@ -3,14 +3,7 @@
 
 #include <stddef.h>
 #include <cglm/vec3.h>
-
-typedef struct sObjectSpec
-{
-    char type[16]; // e.g. "platform", "spike", "jumppad"
-    vec3 position;
-    vec3 scale;
-    vec3 rotation;
-} ObjectSpec;
+#include "object.h"
 
 typedef struct sLevelSpec
 {
