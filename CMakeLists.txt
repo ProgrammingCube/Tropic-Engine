@@ -5,13 +5,13 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
+# Dependencies
 find_package(cJSON REQUIRED)
 find_package(CVector REQUIRED)
-
-# Graphics libraries
 find_package(GLEW REQUIRED)
 find_package(GLUT REQUIRED)
 find_package(OpenGL REQUIRED)
+
 include(FetchContent)
 FetchContent_Declare(
 	cglm
@@ -20,19 +20,23 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cglm)
 
-# Collect all C sources from src/ (reconfigures when new files are added)
-file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/*.c)
-if(NOT SOURCES)
-	message(WARNING "No C sources found in ${CMAKE_SOURCE_DIR}/src")
+# =========================================================================
+# BUILD THE TROPIC ENGINE LIBRARY
+# =========================================================================
+
+# Notice we use CMAKE_CURRENT_SOURCE_DIR to be safe with sub-directories
+file(GLOB_RECURSE ENGINE_SOURCES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/*.c)
+if(NOT ENGINE_SOURCES)
+	message(WARNING "No C sources found in ${CMAKE_CURRENT_SOURCE_DIR}/src")
 endif()
 
-add_executable(tropic_engine ${SOURCES})
+add_library(tropic STATIC ${ENGINE_SOURCES})
 
-# Use headers from inc/
-target_include_directories(tropic_engine PRIVATE ${CMAKE_SOURCE_DIR}/inc)
+target_include_directories(tropic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
-target_compile_options(tropic_engine PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE )
-target_link_libraries(tropic_engine PRIVATE
+target_compile_options(tropic PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE)
+
+target_link_libraries(tropic PUBLIC
 	${CJSON_LIBRARIES}
 	CVector::vector
 	GLEW::GLEW
@@ -40,3 +44,10 @@ target_link_libraries(tropic_engine PRIVATE
 	OpenGL::GL
 	cglm
 )
+
+# =========================================================================
+# INCLUDE SUBDIRECTORIES
+# =========================================================================
+
+# This tells CMake to go into the tests/ folder and look for a CMakeLists.txt
+add_subdirectory(tests)
