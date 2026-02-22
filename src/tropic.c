@@ -87,6 +87,27 @@ TropicGameState* Tropic_getGameState( TropicID id )
     return &e->state;
 }
 
+void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
+{
+    Tropic *self = Tropic_getById( engine );
+    if (!self || !objects || num_objects <= 0) return;
+
+    for (int i = 0; i < num_objects; i++) {
+        Object proto = {0};
+        strncpy(proto.type, objects[i].type, sizeof(proto.type));
+        memcpy(proto.pos, objects[i].position, sizeof(vec3));
+        memcpy(proto.scale, objects[i].scale, sizeof(vec3));
+        memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
+        ObjectID obj_id = Tropic_newObject(self, &proto);
+        if (obj_id != 0) {
+            vector_push_back(self->current_scene->entities, obj_id);
+        }
+    }
+
+    free( objects );
+}
+
+/* add weak for future override capability */
 bool Tropic_parseLevel(TropicID engine, const char* level_path)
 {
     Tropic *self = Tropic_getById( engine );
@@ -96,57 +117,7 @@ bool Tropic_parseLevel(TropicID engine, const char* level_path)
         return false;
     }
 
-    /* Replace state strings (free previous) */
-    if (self->state.game_title) free(self->state.game_title);
-    if (self->state.level_name) free(self->state.level_name);
-    self->state.game_title = strdup(spec->game_title);
-    self->state.level_name = strdup(spec->level_name);
-    self->state.play_speed = (float)spec->play_speed;
-
-    /* Copy object data ( platforms, spikes, jumppads ) to self->current_scene.entities */
-    if (self->current_scene->entities) {
-        vector_free(self->current_scene->entities);
-        self->current_scene->entities = NULL;
-    }
-
-    /* copy spec->platforms position, scale, rotation to new objects and add to scene */
-    for (size_t i = 0; i < spec->platform_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_PLATFORM;
-        memcpy(proto.pos, spec->platforms[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->platforms[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->platforms[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
-
-    /* copy spikes to scene as generic objects (no explicit spike enum present) */
-    for (size_t i = 0; i < spec->spikes_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_SPIKE;
-        memcpy(proto.pos, spec->spikes[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->spikes[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->spikes[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
-
-    /* copy jumppads to scene and tag as TYPE_JUMPPAD */
-    for (size_t i = 0; i < spec->jumppads_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_JUMPPAD;
-        memcpy(proto.pos, spec->jumppads[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->jumppads[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->jumppads[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
+    
 
     level_free(spec);
     return true;

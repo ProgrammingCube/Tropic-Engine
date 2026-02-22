@@ -1,15 +1,4 @@
-#include "../inc/level_parser.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <cjson/cJSON.h>
-
-/* TODO
-* Add ObjectType field to ObjectSpec, so we can specify what type of object it is (platform, spike, jumppad, etc.) and have the engine create the appropriate object type based on that. This will make the level spec more flexible and allow for more types of objects in the future without changing the spec structure.
-* Make this a generic level parser that can handle any type of object, instead of hardcoding platforms, spikes, jumppads specifically. The engine can then decide how to interpret the data and create objects accordingly. This will decouple the parsing logic from the engine logic and make it more modular. Tropic should not care about platforms, spikes, jumppads specifically, it should just take the data and create objects accordingly.
-* It should be the responsibility of the engine to decide how to interpret the data and create objects accordingly, based on the ObjectType field in the ObjectSpec. This will allow for more flexibility and extensibility in the future, as we can add new object types without changing the level spec structure or parsing logic.
-* ObjectType should be a char string in the JSON, and we can have the level parser convert the char* from ObjectSpec to an enum ObjectType in the engine. This will make the JSON more human-readable and easier to edit, while still allowing for efficient handling in the engine.
-*/
+#include "level_loader.h"
 
 static char* raw_json_to_str(const char* file_name)
 {
@@ -29,10 +18,10 @@ static char* raw_json_to_str(const char* file_name)
     return tmp_buffer;
 }
 
-LevelSpec* level_parse_file(const char *path)
+ObjectSpec* parseLevel(const char* path, int* out_num_objects)
 {
-    char *raw = raw_json_to_str(path);
-    if (!raw) return NULL;
+    char *raw = raw_json_to_str( path );
+    if ( !raw ) return NULL;
 
     cJSON *json = cJSON_Parse(raw);
     free(raw);
@@ -207,75 +196,5 @@ LevelSpec* level_parse_file(const char *path)
         spec->jumppads = NULL;
     }
 
-
-    
-    /* Replace state strings (free previous) */
-    if (self->state.game_title) free(self->state.game_title);
-    if (self->state.level_name) free(self->state.level_name);
-    self->state.game_title = strdup(spec->game_title);
-    self->state.level_name = strdup(spec->level_name);
-    self->state.play_speed = (float)spec->play_speed;
-
-    /* Copy object data ( platforms, spikes, jumppads ) to self->current_scene.entities */
-    if (self->current_scene->entities) {
-        vector_free(self->current_scene->entities);
-        self->current_scene->entities = NULL;
-    }
-
-    /* copy spec->platforms position, scale, rotation to new objects and add to scene */
-    for (size_t i = 0; i < spec->platform_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_PLATFORM;
-        memcpy(proto.pos, spec->platforms[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->platforms[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->platforms[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
-
-    /* copy spikes to scene as generic objects (no explicit spike enum present) */
-    for (size_t i = 0; i < spec->spikes_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_SPIKE;
-        memcpy(proto.pos, spec->spikes[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->spikes[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->spikes[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
-
-    /* copy jumppads to scene and tag as TYPE_JUMPPAD */
-    for (size_t i = 0; i < spec->jumppads_count; i++) {
-        Object proto = {0};
-        proto.type = TYPE_JUMPPAD;
-        memcpy(proto.pos, spec->jumppads[i].position, sizeof(vec3));
-        memcpy(proto.scale, spec->jumppads[i].scale, sizeof(vec3));
-        memcpy(proto.rot, spec->jumppads[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
-    }
-
-
-
-    
-    /* free the JSON object */
-    cJSON_Delete(json);
     return spec;
-}
-
-void level_free(LevelSpec *spec)
-{
-    if (!spec) return;
-    if (spec->game_title) free(spec->game_title);
-    if (spec->level_name) free(spec->level_name);
-    if (spec->platforms) free(spec->platforms);
-    if (spec->spikes) free(spec->spikes);
-    if (spec->jumppads) free(spec->jumppads);
-    free(spec);
 }

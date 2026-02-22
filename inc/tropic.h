@@ -42,6 +42,9 @@ TropicGameState* Tropic_getGameState( TropicID id );
 
 /* Core lifecycle */
 bool Tropic_parseLevel(TropicID engine, const char* level_path);
+void Tropic_LoadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
+int Tropic_getNumObjectsInScene( TropicID engine );
+int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
 
 /* Object pool APIs */
 ObjectID Tropic_newObject(Tropic* self, const Object* proto);

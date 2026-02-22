@@ -19,6 +19,23 @@ int main( int argc, char *argv[] )
     (void)argc; (void)argv; // Unused parameters
     /* create engine via handle API */
     TropicID engine = Tropic_create();
+
+    int num_objects = 0;
+    LevelSpec* parsedData = parseLevel("../assets/levels/test_level.json", &num_objects );
+
+    Tropic_LoadObjects( engine, parsedData, num_objects );
+
+
+
+
+
+
+
+
+
+
+
+
     Tropic_parseLevel(engine, "../assets/levels/test_level.json");
 
     /* print level info from engine->state */
