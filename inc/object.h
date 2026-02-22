@@ -16,7 +16,7 @@ typedef enum eObjectType
 
 typedef struct sObject
 {
-    uint32_t id;
+    ObjectID id;
     ObjectType type;
     bool active;
     Position pos;

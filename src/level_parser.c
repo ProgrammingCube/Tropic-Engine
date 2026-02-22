@@ -4,6 +4,13 @@
 #include <string.h>
 #include <cjson/cJSON.h>
 
+/* TODO
+* Add ObjectType field to ObjectSpec, so we can specify what type of object it is (platform, spike, jumppad, etc.) and have the engine create the appropriate object type based on that. This will make the level spec more flexible and allow for more types of objects in the future without changing the spec structure.
+* Make this a generic level parser that can handle any type of object, instead of hardcoding platforms, spikes, jumppads specifically. The engine can then decide how to interpret the data and create objects accordingly. This will decouple the parsing logic from the engine logic and make it more modular. Tropic should not care about platforms, spikes, jumppads specifically, it should just take the data and create objects accordingly.
+* It should be the responsibility of the engine to decide how to interpret the data and create objects accordingly, based on the ObjectType field in the ObjectSpec. This will allow for more flexibility and extensibility in the future, as we can add new object types without changing the level spec structure or parsing logic.
+* ObjectType should be a char string in the JSON, and we can have the level parser convert the char* from ObjectSpec to an enum ObjectType in the engine. This will make the JSON more human-readable and easier to edit, while still allowing for efficient handling in the engine.
+*/
+
 static char* raw_json_to_str(const char* file_name)
 {
     char* tmp_buffer;
@@ -65,21 +72,23 @@ LevelSpec* level_parse_file(const char *path)
         for (size_t i = 0; i < spec->platform_count; i++) {
             cJSON *obj = cJSON_GetArrayItem(platforms, i);
             if (!obj) continue;
-            cJSON *pos = cJSON_GetObjectItemCaseSensitive(obj, "position");
+
+            cJSON *pos = cJSON_GetObjectItemCaseSensitive(obj, "pos");
             cJSON *scale = cJSON_GetObjectItemCaseSensitive(obj, "scale");
-            cJSON *rot = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
+            cJSON *rot = cJSON_GetObjectItemCaseSensitive(obj, "rot");
 
-            spec->platforms[i].position[0] = pos ? pos->valuedouble : 0.0;
-            spec->platforms[i].position[1] = pos ? pos->valuedouble : 0.0;
-            spec->platforms[i].position[2] = pos ? pos->valuedouble : 0.0;
-
-            spec->platforms[i].scale[0] = scale ? scale->valuedouble : 1.0;
-            spec->platforms[i].scale[1] = scale ? scale->valuedouble : 1.0;
-            spec->platforms[i].scale[2] = scale ? scale->valuedouble : 1.0;
-
-            spec->platforms[i].rotation[0] = rot ? rot->valuedouble : 0.0;
-            spec->platforms[i].rotation[1] = rot ? rot->valuedouble : 0.0;
-            spec->platforms[i].rotation[2] = rot ? rot->valuedouble : 0.0;
+            // set spec->platforms[i].type to "platform"
+            strncpy(spec->platforms[i].type, "platform\0", sizeof(spec->platforms[i].type) - 1);
+            //spec->platforms[i].type[sizeof(spec->platforms[i].type) - 1] = '\0';
+            spec->platforms[i].position[0] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"x" )->valuedouble : 0.0;
+            spec->platforms[i].position[1] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"y" )->valuedouble : 0.0;
+            spec->platforms[i].position[2] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"z" )->valuedouble : 0.0;
+            spec->platforms[i].scale[0] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"x" )->valuedouble : 1.0;
+            spec->platforms[i].scale[1] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"y" )->valuedouble : 1.0;
+            spec->platforms[i].scale[2] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"z" )->valuedouble : 1.0;
+            spec->platforms[i].rotation[0] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"x" )->valuedouble : 0.0;
+            spec->platforms[i].rotation[1] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"y" )->valuedouble : 0.0;
+            spec->platforms[i].rotation[2] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"z" )->valuedouble : 0.0;
         }
     } else {
         spec->platform_count = 0;
@@ -103,17 +112,16 @@ LevelSpec* level_parse_file(const char *path)
             cJSON *scale = cJSON_GetObjectItemCaseSensitive(obj, "scale");
             cJSON *rot = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
 
-            spec->spikes[i].position[0] = pos ? pos->valuedouble : 0.0;
-            spec->spikes[i].position[1] = pos ? pos->valuedouble : 0.0;
-            spec->spikes[i].position[2] = pos ? pos->valuedouble : 0.0;
-
-            spec->spikes[i].scale[0] = scale ? scale->valuedouble : 1.0;
-            spec->spikes[i].scale[1] = scale ? scale->valuedouble : 1.0;
-            spec->spikes[i].scale[2] = scale ? scale -> valuedouble : 1.0;
-
-            spec->spikes[i].rotation[0] = rot ? rot->valuedouble : 0.0;
-            spec->spikes[i].rotation[1] = rot ? rot->valuedouble : 0.0;
-            spec->spikes[i].rotation[2] = rot ? rot->valuedouble : 0.0;
+            strncpy(spec->spikes[i].type, "spike\0", sizeof(spec->spikes[i].type) - 1);
+            spec->spikes[i].position[0] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"x" )->valuedouble : 0.0;
+            spec->spikes[i].position[1] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"y" )->valuedouble : 0.0;
+            spec->spikes[i].position[2] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"z" )->valuedouble : 0.0;
+            spec->spikes[i].scale[0] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"x" )->valuedouble : 1.0;
+            spec->spikes[i].scale[1] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"y" )->valuedouble : 1.0;
+            spec->spikes[i].scale[2] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"z" )->valuedouble : 1.0;
+            spec->spikes[i].rotation[0] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"x" )->valuedouble : 0.0;
+            spec->spikes[i].rotation[1] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"y" )->valuedouble : 0.0;
+            spec->spikes[i].rotation[2] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"z" )->valuedouble : 0.0;
         }
     } else {
         spec->spikes_count = 0;
@@ -137,17 +145,16 @@ LevelSpec* level_parse_file(const char *path)
             cJSON *scale = cJSON_GetObjectItemCaseSensitive(obj, "scale");
             cJSON *rot = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
 
-            spec->jumppads[i].position[0] = pos ? pos->valuedouble : 0.0;
-            spec->jumppads[i].position[1] = pos ? pos->valuedouble : 0.0;
-            spec->jumppads[i].position[2] = pos ? pos->valuedouble : 0.0;
-
-            spec->jumppads[i].scale[0] = scale ? scale->valuedouble : 1.0;
-            spec->jumppads[i].scale[1] = scale ? scale->valuedouble : 1.0;
-            spec->jumppads[i].scale[2] = scale ? scale -> valuedouble : 1.0;
-
-            spec->jumppads[i].rotation[0] = rot ? rot->valuedouble : 0.0;
-            spec->jumppads[i].rotation[1] = rot ? rot->valuedouble : 0.0;
-            spec->jumppads[i].rotation[2] = rot ? rot->valuedouble : 0.0;
+            strncpy(spec->jumppads[i].type, "jumppad\0", sizeof(spec->jumppads[i].type) - 1);
+            spec->jumppads[i].position[0] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"x" )->valuedouble : 0.0;
+            spec->jumppads[i].position[1] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"y" )->valuedouble : 0.0;
+            spec->jumppads[i].position[2] = pos ? cJSON_GetObjectItemCaseSensitive( pos,"z" )->valuedouble : 0.0;
+            spec->jumppads[i].scale[0] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"x" )->valuedouble : 1.0;
+            spec->jumppads[i].scale[1] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"y" )->valuedouble : 1.0;
+            spec->jumppads[i].scale[2] = scale ? cJSON_GetObjectItemCaseSensitive( scale,"z" )->valuedouble : 1.0;
+            spec->jumppads[i].rotation[0] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"x" )->valuedouble : 0.0;
+            spec->jumppads[i].rotation[1] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"y" )->valuedouble : 0.0;
+            spec->jumppads[i].rotation[2] = rot ? cJSON_GetObjectItemCaseSensitive( rot,"z" )->valuedouble : 0.0;
         }
     } else {
         spec->jumppads_count = 0;

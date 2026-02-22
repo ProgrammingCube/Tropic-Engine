@@ -41,6 +41,11 @@ ObjectID Tropic_newObject(Tropic* self, const Object* proto);
 Object*  Tropic_getObject(Tropic* self, ObjectID id);
 bool      Tropic_freeObject(Tropic* self, ObjectID id);
 
+/* Engine handle APIs */
+TropicID Tropic_create(void);
+Tropic*  Tropic_get(TropicID id);
+bool     Tropic_destroy(TropicID id);
+
 /* Mesh pool APIs */
 MeshID   Tropic_newMesh(Tropic* self, const Mesh* proto);
 Mesh*    Tropic_getMesh(Tropic* self, MeshID id);

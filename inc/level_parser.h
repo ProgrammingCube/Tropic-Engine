@@ -6,6 +6,7 @@
 
 typedef struct sObjectSpec
 {
+    char type[16]; // e.g. "platform", "spike", "jumppad"
     vec3 position;
     vec3 scale;
     vec3 rotation;

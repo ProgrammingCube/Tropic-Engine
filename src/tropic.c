@@ -42,6 +42,38 @@ bool Tropic_init(Tropic* self)
     return true;
 }
 
+/* Global engines manager */
+static IDManager* _engines_mgr = NULL;
+
+TropicID Tropic_create(void)
+{
+    if (!_engines_mgr) _engines_mgr = idmgr_create(16);
+    Tropic *e = (Tropic*)malloc(sizeof(Tropic));
+    if (!e) return 0;
+    if (!Tropic_init(e)) { free(e); return 0; }
+    Handle h = idmgr_alloc(_engines_mgr, e);
+    if (h == 0) { Tropic_cleanup(e); free(e); return 0; }
+    return (TropicID)h;
+}
+
+Tropic* Tropic_get(TropicID id)
+{
+    if (!_engines_mgr) return NULL;
+    return (Tropic*)idmgr_get(_engines_mgr, id);
+}
+
+bool Tropic_destroy(TropicID id)
+{
+    if (!_engines_mgr) return false;
+    Tropic *e = (Tropic*)idmgr_get(_engines_mgr, id);
+    if (!e) return false;
+    /* cleanup engine resources */
+    Tropic_cleanup(e);
+    idmgr_free(_engines_mgr, id);
+    free(e);
+    return true;
+}
+
 bool Tropic_parseLevel(Tropic* self, const char* level_path)
 {
     LevelSpec *spec = level_parse_file(level_path);
@@ -63,18 +95,24 @@ bool Tropic_parseLevel(Tropic* self, const char* level_path)
         self->current_scene->entities = NULL;
     }
 
-    /* Example: create a default object and register it (store handle in scene) */
-    Object def = {0};
-    ObjectID h = Tropic_newObject(self, &def);
-    if (h != 0) {
-        vector_push_back(self->current_scene->entities, h);
+    /* copy spec->platforms position, scale, rotation to new objects and add to scene */
+    for (size_t i = 0; i < spec->platform_count; i++) {
+        Object proto = {0};
+        proto.type = TYPE_PLATFORM;
+        memcpy(proto.pos, spec->platforms[i].position, sizeof(vec3));
+        memcpy(proto.scale, spec->platforms[i].scale, sizeof(vec3));
+        memcpy(proto.rot, spec->platforms[i].rotation, sizeof(vec3));
+        ObjectID obj_id = Tropic_newObject(self, &proto);
+        if (obj_id != 0) {
+            vector_push_back(self->current_scene->entities, obj_id);
+        }
     }
-
-
 
     printf("game_title: %s\n", self->state.game_title);
     printf("level_name: %s\n", self->state.level_name);
     printf("play_speed: %f\n", self->state.play_speed);
+
+    
 
     level_free(spec);
     return true;
