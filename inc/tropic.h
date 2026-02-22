@@ -41,8 +41,8 @@ bool     Tropic_destroy(TropicID id);
 TropicGameState* Tropic_getGameState( TropicID id );
 
 /* Core lifecycle */
-bool Tropic_parseLevel(TropicID engine, const char* level_path);
-void Tropic_LoadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
+void* Tropic_parseLevel(TropicID engine, const char* level_path, int* out_num_objects );
+void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
 int Tropic_getNumObjectsInScene( TropicID engine );
 int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
 

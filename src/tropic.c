@@ -1,5 +1,4 @@
 #include "tropic.h"
-#include "level_parser.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,20 +106,12 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
     free( objects );
 }
 
-/* add weak for future override capability */
-bool Tropic_parseLevel(TropicID engine, const char* level_path)
+__attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
+                                                     const char* file,
+                                                     int* out_num_objects
+                                                    )
 {
-    Tropic *self = Tropic_getById( engine );
-    LevelSpec *spec = level_parse_file(level_path);
-    if (!spec) {
-        fprintf(stderr, "Failed to parse level file: %s\n", level_path);
-        return false;
-    }
-
-    
-
-    level_free(spec);
-    return true;
+    // Basic default parsing logic here
 }
 
 ObjectID Tropic_newObject(Tropic* self, const Object* proto)

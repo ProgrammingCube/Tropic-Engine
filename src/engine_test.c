@@ -24,48 +24,12 @@ int main( int argc, char *argv[] )
     LevelSpec* parsedData = parseLevel("../assets/levels/test_level.json", &num_objects );
     ObjectSpec* objects = levelspec_to_objects( parsedData, engine, &num_objects );
 
-    Tropic_LoadObjects( engine, objects, num_objects );
+    Tropic_loadObjects( engine, objects, num_objects );
 
      /* print level info from engine->state */
     TropicGameState* state = Tropic_getGameState(engine);
     printf("Level: %s (%s)\n", state->game_title, state->level_name);
     printf("Play Speed: %f\n", state->play_speed);
-
-
-
-
-
-
-
-
-
-
-    
-
-    /* print level info from engine->state */
-    //TropicGameState* state = Tropic_getGameState(engine);
-    //printf("Level: %s (%s)\n", state->game_title, state->level_name);
-    //printf("Play Speed: %f\n", state->play_speed);
-
-    /* print objects from engine Scene vector(ObjectID) entities */
-    Tropic* e = Tropic_getById(engine);
-    printf("Objects in scene:\n");
-    for (size_t i = 0; i < vector_size(e->current_scene->entities); i++) {
-        ObjectID obj_id = *(vector_at(e->current_scene->entities, i));
-        Object* obj = Tropic_getObject(e, obj_id);
-        printf("Object ID: %u, Type: %d, Position: (%f, %f, %f), Scale: (%f, %f, %f), Rotation: (%f, %f, %f)\n",
-            obj->id, obj->type,
-            obj->pos[0], obj->pos[1], obj->pos[2],
-            obj->scale[0], obj->scale[1], obj->scale[2],
-            obj->rot[0], obj->rot[1], obj->rot[2]
-        );
-    }
-
-    /*
-    printf("Platforms: %zu\n", state->platform_count);
-    printf("Spikes: %zu\n", state->spikes_count);
-    printf("Jumppads: %zu\n", state->jumppads_count);
-    */
 
 
     /* main game loop */
