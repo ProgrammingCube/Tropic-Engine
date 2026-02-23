@@ -9,7 +9,7 @@ This bare bones game engine boasts simple scene management, multiple cameras, wo
 ---
 
 ## 📖 Table of Contents
-- [Requirements](#requirements-block)
+- [Requirements](#requirements)
 - [Core Structures](#core-structures)
   - [Tropic Engine](#struct-tropic)
   - [Scene](#struct-scene)
