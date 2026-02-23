@@ -1,14 +1,17 @@
 #include "tropic.h"
+#include <vector.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+// ask how to create a default camera without having circular dependencies
 static void _initializeCurrentScene(Tropic* self)
 {
     if (!self || !self->current_scene) return;
 
     self->current_scene->name = "Default Scene";
     self->current_scene->entities = NULL;
+    self->current_scene->cameras = NULL;
     self->current_scene->on_enter = NULL;  // Set to actual function pointers as needed
     self->current_scene->on_update = NULL;
     self->current_scene->on_render = NULL;
@@ -86,6 +89,78 @@ TropicGameState* Tropic_getGameState( TropicID id )
     return &e->state;
 }
 
+TropicWindowID* Tropic_CreateWindow( TropicID engine_id, int width, int height, const char* title, bool fullscreen )
+{
+    Tropic *self = Tropic_getById(engine_id);
+    if (!self) return NULL;
+
+    /* Initialize GLFW */
+    if (!glfwInit()) {
+        fprintf(stderr, "Failed to initialize GLFW\n");
+        return NULL;
+    }
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+#ifdef __APPLE__
+    glfwWindowHint( GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE );
+#endif
+    
+    /* Good practice for OpenGL Core Profiles (Mac/Linux like this) */
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE); 
+
+    self->window = glfwCreateWindow(width, height, title, fullscreen ? glfwGetPrimaryMonitor() : NULL, NULL);
+    if (!self->window) {
+        fprintf(stderr, "Failed to create GLFW window\n");
+        glfwTerminate();
+        return NULL;
+    }
+
+    glfwMakeContextCurrent(self->window);
+    
+    if ( !gladLoadGLLoader( ( GLADloadproc )glfwGetProcAddress ) )
+    {
+        fprintf(stderr, "Failed to initialize GLAD\n" );
+        glfwDestroyWindow( self->window );
+        glfwTerminate();
+        return NULL;
+    }
+
+    printf( "Successfully loaded OpenGL %s\n", glGetString( GL_VERSION ) );
+    printf( "Graphics Card: %s\n", glGetString( GL_RENDERER ) );
+
+    glEnable( GL_DEPTH_TEST );
+
+    return self->window;
+}
+
+int Tropic_Update( TropicID engine_id )
+{
+    Tropic *self = Tropic_getById( engine_id );
+    if ( !self ) return 0;
+
+    /* Poll events and check if the window should close */
+    glfwPollEvents();
+
+    // check if window should close and return false to signal main loop to exit
+    return !glfwWindowShouldClose( self->window );
+}
+
+void Tropic_Render( TropicID engine_id )
+{
+    Tropic *self = Tropic_getById( engine_id );
+    if ( !self ) return;
+
+    /* Clear the screen */
+    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    /* render active scene and cameras here */
+
+    glfwSwapBuffers(self->window);
+}
+
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 {
     Tropic *self = Tropic_getById( engine );
@@ -97,10 +172,7 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
         memcpy(proto.pos, objects[i].position, sizeof(vec3));
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
-        ObjectID obj_id = Tropic_newObject(self, &proto);
-        if (obj_id != 0) {
-            vector_push_back(self->current_scene->entities, obj_id);
-        }
+        (void)Tropic_newObject( engine, &proto);
     }
 
     free( objects );
@@ -115,8 +187,10 @@ __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
     return NULL;
 }
 
-ObjectID Tropic_newObject(Tropic* self, const Object* proto)
+// perhaps change to Tropic_addObject and have a separate, true, Tropic_newObject that adds a generic object?
+ObjectID Tropic_newObject( TropicID engine, const Object* proto)
 {
+    Tropic *self = Tropic_getById( engine );
     if (!self) return 0;
     Object *o = (Object*)malloc(sizeof(Object));
     if (!o) return 0;
@@ -125,22 +199,30 @@ ObjectID Tropic_newObject(Tropic* self, const Object* proto)
 
     /* ensure sensible defaults */
     if (o->type == 0) o->type = TYPE_GENERIC;
-    o->active = 1;
+    o->active = true;
 
     Handle h = idmgr_alloc(self->objects, o);
     if (h == 0) { free(o); return 0; }
-    o->id = (uint32_t)h;
+    o->id = (ObjectID)h;
+
+    if (o->id != 0)
+    {
+        vector_push_back(self->current_scene->entities, o->id );
+    }
+
     return (ObjectID)h;
 }
 
-Object* Tropic_getObject(Tropic* self, ObjectID id)
+Object* Tropic_getObject( TropicID engine, ObjectID id)
 {
+    Tropic *self = Tropic_getById( engine );
     if (!self) return NULL;
     return (Object*)idmgr_get(self->objects, id);
 }
 
-bool Tropic_freeObject(Tropic* self, ObjectID id)
+bool Tropic_freeObject( TropicID engine, ObjectID id)
 {
+    Tropic *self = Tropic_getById( engine );
     if (!self) return false;
     Object *o = (Object*)idmgr_get(self->objects, id);
     if (!o) return false;

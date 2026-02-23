@@ -1,9 +1,10 @@
 #ifndef LEVEL_LOADER_H
 #define LEVEL_LOADER_H
-#include "object.h"
+
 #include <stdio.h>
 #include <cjson/cJSON.h>
 #include "tropic.h"
+#include "object.h"
 
 typedef struct sLevelSpec
 {

@@ -8,9 +8,8 @@ set(CMAKE_C_EXTENSIONS OFF)
 # Dependencies
 find_package(cJSON REQUIRED)
 find_package(CVector REQUIRED)
-find_package(GLEW REQUIRED)
-find_package(GLUT REQUIRED)
 find_package(OpenGL REQUIRED)
+find_package(glfw3 REQUIRED)
 
 include(FetchContent)
 FetchContent_Declare(
@@ -34,13 +33,13 @@ add_library(tropic STATIC ${ENGINE_SOURCES})
 
 target_include_directories(tropic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
-target_compile_options(tropic PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE)
+target_compile_options(tropic PRIVATE -g -Wall -Wextra -D_GNU_SOURCE)
+#set_source_files_properties( ${CMAKE_CURRENT_SOURCE_DIR}/src/glad.c PROPERTIES COMPILE_OPTIONS "$<TARGET_PROPERTY:COMPILE_OPTIONS> -Wno-pedantic")
 
 target_link_libraries(tropic PUBLIC
 	${CJSON_LIBRARIES}
 	CVector::vector
-	GLEW::GLEW
-	GLUT::GLUT
+	glfw
 	OpenGL::GL
 	cglm
 )

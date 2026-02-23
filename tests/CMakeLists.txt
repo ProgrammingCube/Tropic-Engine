@@ -7,10 +7,10 @@ if(NOT TEST_SOURCES)
 endif()
 
 # Create the test executable
-add_executable(engine_test ${TEST_SOURCES})
+add_executable(tropic_test ${TEST_SOURCES})
 
 # Compile options for the test
-target_compile_options(engine_test PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE)
+target_compile_options(tropic_test PRIVATE -g -Wall -Wextra -pedantic -D_GNU_SOURCE)
 
 # Link it to the engine library created in the parent directory
-target_link_libraries(engine_test PRIVATE tropic)
+target_link_libraries(tropic_test PRIVATE tropic)
