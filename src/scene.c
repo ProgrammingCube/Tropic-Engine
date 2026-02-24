@@ -3,6 +3,24 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void _Scene_freeMeshPayload(void *payload)
+{
+    Mesh *mesh = (Mesh*)payload;
+    if (!mesh) return;
+    if (mesh->vbo != 0) glDeleteBuffers(1, &mesh->vbo);
+    if (mesh->ebo != 0) glDeleteBuffers(1, &mesh->ebo);
+    if (mesh->vao != 0) glDeleteVertexArrays(1, &mesh->vao);
+    free(mesh);
+}
+
+static void _Scene_freeShaderPayload(void *payload)
+{
+    Shader *shader = (Shader*)payload;
+    if (!shader) return;
+    shader_destroy(shader);
+    free(shader);
+}
+
 static void _Scene_free( Scene* scene )
 {
     if ( !scene ) return;
@@ -12,12 +30,16 @@ static void _Scene_free( Scene* scene )
         scene->objects_manager = NULL;
     }
     if ( scene->meshes_manager ) {
-        idmgr_free_all( scene->meshes_manager, free );
+        idmgr_free_all( scene->meshes_manager, _Scene_freeMeshPayload );
         scene->meshes_manager = NULL;
     }
     if ( scene->textures_manager ) {
         idmgr_free_all( scene->textures_manager, free );
         scene->textures_manager = NULL;
+    }
+    if ( scene->shaders_manager ) {
+        idmgr_free_all( scene->shaders_manager, _Scene_freeShaderPayload );
+        scene->shaders_manager = NULL;
     }
     if ( scene->cameras_manager ) {
         idmgr_free_all( scene->cameras_manager, free );
@@ -76,10 +98,15 @@ SceneID Tropic_createScene( TropicID engine_id, const char* name )
     scene->meshes_manager = idmgr_create( 128 );
     scene->textures_manager = idmgr_create( 128 );
     scene->cameras_manager = idmgr_create( 32 );
+        scene->shaders_manager = idmgr_create( 64 );
+        scene->default_platform_mesh = 0;
+        scene->default_platform_shader = 0;
+        scene->renderer_ready = false;
     if ( !scene->objects_manager ||
          !scene->meshes_manager ||
          !scene->textures_manager ||
-         !scene->cameras_manager ) {
+            !scene->cameras_manager ||
+            !scene->shaders_manager ) {
         _Scene_free( scene );
         return 0;
     }

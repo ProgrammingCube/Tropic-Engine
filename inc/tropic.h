@@ -14,6 +14,7 @@
 #include "id_manager.h"
 #include "mesh.h"
 #include "texture.h"
+#include "shader.h"
 
 // probably should move at least objects and cameras to scenes
 // refactor Scene to be SceneID vector and have Scene*'s be in the memory pool
@@ -68,6 +69,11 @@ bool     Tropic_freeMesh(TropicID engine_id, MeshID id);
 TextureID Tropic_newTexture(TropicID engine_id, const Texture* proto);
 Texture*  Tropic_getTexture(TropicID engine_id, TextureID id);
 bool      Tropic_freeTexture(TropicID engine_id, TextureID id);
+
+/* Shader pool APIs */
+ShaderID Tropic_newShader(TropicID engine_id, const Shader* proto);
+Shader*  Tropic_getShader(TropicID engine_id, ShaderID id);
+bool     Tropic_freeShader(TropicID engine_id, ShaderID id);
 
 void Tropic_update(Tropic* self, float delta_time);
 void Tropic_render(Tropic* self);

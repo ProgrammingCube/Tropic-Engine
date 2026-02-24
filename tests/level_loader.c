@@ -98,12 +98,30 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
             tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "z") : NULL;
             spec->platforms[i].position[2] = tmp ? tmp->valuedouble : 0.0;
 
+            double scale_x = 1.0;
+            double scale_y = 1.0;
+            double scale_z = 1.0;
+
             tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "x") : NULL;
-            spec->platforms[i].scale[0] = tmp ? tmp->valuedouble : 1.0;
+            scale_x = tmp ? tmp->valuedouble : 1.0;
             tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "y") : NULL;
-            spec->platforms[i].scale[1] = tmp ? tmp->valuedouble : 1.0;
+            scale_y = tmp ? tmp->valuedouble : 1.0;
             tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "z") : NULL;
-            spec->platforms[i].scale[2] = tmp ? tmp->valuedouble : 1.0;
+            scale_z = tmp ? tmp->valuedouble : 1.0;
+
+            double width = 2.0;
+            double height = 2.0;
+            double length = 2.0;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "width") : NULL;
+            width = tmp ? tmp->valuedouble : 2.0;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "height") : NULL;
+            height = tmp ? tmp->valuedouble : 2.0;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "length") : NULL;
+            length = tmp ? tmp->valuedouble : 2.0;
+
+            spec->platforms[i].scale[0] = (float)(0.5 * width * scale_x);
+            spec->platforms[i].scale[1] = (float)(0.5 * height * scale_y);
+            spec->platforms[i].scale[2] = (float)(0.5 * length * scale_z);
 
             tmp = rot ? cJSON_GetObjectItemCaseSensitive(rot, "x") : NULL;
             spec->platforms[i].rotation[0] = tmp ? tmp->valuedouble : 0.0;

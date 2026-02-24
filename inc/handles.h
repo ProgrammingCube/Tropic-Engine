@@ -11,6 +11,7 @@ typedef Handle ObjectID;
 typedef Handle MeshID;
 typedef Handle TextureID;
 typedef Handle CameraID;
+typedef Handle ShaderID;
 
 /* GLFWwindow "handle" */
 typedef GLFWwindow TropicWindowID;

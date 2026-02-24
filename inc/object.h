@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "tropic_datatypes.h"
+#include "mesh.h"
 
 typedef enum eObjectType
 {
@@ -33,11 +34,14 @@ typedef struct sObjectSpec
 typedef struct sObject
 {
     ObjectID id;
+    MeshID mesh_id;
+    ShaderID shader_id;
     ObjectType type;
     bool active;
     Position pos;
     Scale scale;
     Rotation rot;
+    Mesh mesh;
 } Object;
 
 #endif /* OBJECT_H */
