@@ -7,6 +7,7 @@
 typedef struct sScene
 {
     char *name;
+    SceneID id;
     vector( ObjectID ) entities;                    // global vector of all entity handles in the game
     vector( CameraID ) cameras;
     CameraID active_camera;
@@ -22,5 +23,12 @@ typedef struct sScene
     IDManager* meshes_manager;
     IDManager* textures_manager;
 } Scene;
+
+SceneID Tropic_createScene( TropicID engine_id, const char* name );
+Scene*  Tropic_getSceneByID( TropicID engine_id, SceneID scene_id );
+Scene*  Tropic_getCurrentScene( TropicID engine_id );
+SceneID Tropic_getCurrentSceneID( TropicID engine_id );
+bool    Tropic_setCurrentScene( TropicID engine_id, SceneID scene_id );
+bool    Tropic_freeScene( TropicID engine_id, SceneID scene_id );
 
 #endif /* SCENE_H */

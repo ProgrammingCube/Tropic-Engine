@@ -4,24 +4,15 @@
 #include <stdlib.h>
 #include <string.h>
 
-// ask how to create a default camera without having circular dependencies
-static void _initializeCurrentScene(Tropic* self)
-{
-    if (!self || !self->current_scene) return;
-
-    self->current_scene->name = "Default Scene";
-    self->current_scene->entities = NULL;
-    self->current_scene->cameras = NULL;
-    self->current_scene->active_camera = 0;
-    self->current_scene->on_enter = NULL;  // Set to actual function pointers as needed
-    self->current_scene->on_update = NULL;
-    self->current_scene->on_render = NULL;
-    self->current_scene->on_exit = NULL;
-}
-
 /* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
 
-static bool _Tropic_init(Tropic* self)
+Scene* Tropic_getCurrentScenePtr( Tropic* self )
+{
+    if ( !self || !self->scene_manager || self->current_scene == 0 ) return NULL;
+    return ( Scene* )idmgr_get( self->scene_manager, self->current_scene );
+}
+
+static bool _Tropic_init(TropicID engine_id, Tropic* self)
 {
     if (!self) return 0;
 
@@ -32,18 +23,14 @@ static bool _Tropic_init(Tropic* self)
     self->state.level_name = strdup("Test Level 1");
     self->state.play_speed = 1.0f;
 
-    /* Allocate and initialize the current scene */
-    self->current_scene = malloc(sizeof(*self->current_scene));
-    if (!self->current_scene) return false;
+    self->current_scene = 0;
+    self->scenes = NULL;
+    self->scene_manager = idmgr_create( 64 );
+    if ( !self->scene_manager ) return false;
 
-    /* Initialize resource pools */
-    self->current_scene->objects_manager = idmgr_create(256);
-    self->current_scene->meshes_manager = idmgr_create(128);
-    self->current_scene->textures_manager = idmgr_create(128);
-    self->current_scene->cameras_manager = idmgr_create(32);
-
-    // Initialize the current scene with default values
-    _initializeCurrentScene(self);
+    SceneID default_scene = Tropic_createScene( engine_id, "Default Scene" );
+    if ( default_scene == 0 ) return false;
+    if ( !Tropic_setCurrentScene( engine_id, default_scene ) ) return false;
 
     return true;
 }
@@ -56,9 +43,14 @@ TropicID Tropic_create(void)
     if (!_engines_mgr) _engines_mgr = idmgr_create(16);
     Tropic *e = (Tropic*)malloc(sizeof(Tropic));
     if (!e) return 0;
-    if (!_Tropic_init(e)) { free(e); return 0; }
     Handle h = idmgr_alloc(_engines_mgr, e);
-    if (h == 0) { Tropic_cleanup(e); free(e); return 0; }
+    if (h == 0) { free(e); return 0; }
+    if (!_Tropic_init((TropicID)h, e)) {
+        Tropic_cleanup(e);
+        idmgr_free(_engines_mgr, h);
+        free(e);
+        return 0;
+    }
 
     CameraID default_camera = Tropic_newCamera((TropicID)h,
                                                (vec3){ 0.0f, 0.0f, 10.0f },
@@ -209,7 +201,8 @@ __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
 ObjectID Tropic_newObject( TropicID engine, const Object* proto)
 {
     Tropic *self = Tropic_getById( engine );
-    if (!self) return 0;
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return 0;
     Object *o = (Object*)malloc(sizeof(Object));
     if (!o) return 0;
     if (proto) memcpy(o, proto, sizeof(Object));
@@ -219,13 +212,13 @@ ObjectID Tropic_newObject( TropicID engine, const Object* proto)
     if (o->type == 0) o->type = TYPE_GENERIC;
     o->active = true;
 
-    Handle h = idmgr_alloc(self->current_scene->objects_manager, o);
+    Handle h = idmgr_alloc(scene->objects_manager, o);
     if (h == 0) { free(o); return 0; }
     o->id = (ObjectID)h;
 
     if (o->id != 0)
     {
-        vector_push_back(self->current_scene->entities, o->id );
+        vector_push_back(scene->entities, o->id );
     }
 
     return (ObjectID)h;
@@ -234,77 +227,91 @@ ObjectID Tropic_newObject( TropicID engine, const Object* proto)
 Object* Tropic_getObject( TropicID engine, ObjectID id)
 {
     Tropic *self = Tropic_getById( engine );
-    if (!self) return NULL;
-    return (Object*)idmgr_get(self->current_scene->objects_manager, id);
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return NULL;
+    return (Object*)idmgr_get(scene->objects_manager, id);
 }
 
 bool Tropic_freeObject( TropicID engine, ObjectID id)
 {
     Tropic *self = Tropic_getById( engine );
-    if (!self) return false;
-    Object *o = (Object*)idmgr_get(self->current_scene->objects_manager, id);
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return false;
+    Object *o = (Object*)idmgr_get(scene->objects_manager, id);
     if (!o) return false;
-    bool ok = idmgr_free(self->current_scene->objects_manager, id);
+    bool ok = idmgr_free(scene->objects_manager, id);
     if (ok) free(o);
     return ok;
 }
 
 /* Mesh pool functions */
-MeshID Tropic_newMesh(Tropic* self, const Mesh* proto)
+MeshID Tropic_newMesh(TropicID engine_id, const Mesh* proto)
 {
-    if (!self) return 0;
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return 0;
     Mesh *m = (Mesh*)malloc(sizeof(Mesh));
     if (!m) return 0;
     if (proto) memcpy(m, proto, sizeof(Mesh));
     else memset(m, 0, sizeof(Mesh));
-    Handle h = idmgr_alloc(self->current_scene->meshes_manager, m);
+    Handle h = idmgr_alloc(scene->meshes_manager, m);
     if (h == 0) { free(m); return 0; }
     m->id = (uint32_t)h;
     return (MeshID)h;
 }
 
-Mesh* Tropic_getMesh(Tropic* self, MeshID id)
+Mesh* Tropic_getMesh(TropicID engine_id, MeshID id)
 {
-    if (!self) return NULL;
-    return (Mesh*)idmgr_get(self->current_scene->meshes_manager, id);
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return NULL;
+    return (Mesh*)idmgr_get(scene->meshes_manager, id);
 }
 
-bool Tropic_freeMesh(Tropic* self, MeshID id)
+bool Tropic_freeMesh(TropicID engine_id, MeshID id)
 {
-    if (!self) return false;
-    Mesh *m = (Mesh*)idmgr_get(self->current_scene->meshes_manager, id);
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return false;
+    Mesh *m = (Mesh*)idmgr_get(scene->meshes_manager, id);
     if (!m) return false;
-    bool ok = idmgr_free(self->current_scene->meshes_manager, id);
+    bool ok = idmgr_free(scene->meshes_manager, id);
     if (ok) free(m);
     return ok;
 }
 
 /* Texture pool functions */
-TextureID Tropic_newTexture(Tropic* self, const Texture* proto)
+TextureID Tropic_newTexture(TropicID engine_id, const Texture* proto)
 {
-    if (!self) return 0;
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return 0;
     Texture *t = (Texture*)malloc(sizeof(Texture));
     if (!t) return 0;
     if (proto) memcpy(t, proto, sizeof(Texture));
     else memset(t, 0, sizeof(Texture));
-    Handle h = idmgr_alloc(self->current_scene->textures_manager, t);
+    Handle h = idmgr_alloc(scene->textures_manager, t);
     if (h == 0) { free(t); return 0; }
     t->id = (uint32_t)h;
     return (TextureID)h;
 }
 
-Texture* Tropic_getTexture(Tropic* self, TextureID id)
+Texture* Tropic_getTexture(TropicID engine_id, TextureID id)
 {
-    if (!self) return NULL;
-    return (Texture*)idmgr_get(self->current_scene->textures_manager, id);
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return NULL;
+    return (Texture*)idmgr_get(scene->textures_manager, id);
 }
 
-bool Tropic_freeTexture(Tropic* self, TextureID id)
+bool Tropic_freeTexture(TropicID engine_id, TextureID id)
 {
-    if (!self) return false;
-    Texture *t = (Texture*)idmgr_get(self->current_scene->textures_manager, id);
+    Tropic *self = Tropic_getById( engine_id );
+    Scene *scene = Tropic_getCurrentScenePtr( self );
+    if (!self || !scene) return false;
+    Texture *t = (Texture*)idmgr_get(scene->textures_manager, id);
     if (!t) return false;
-    bool ok = idmgr_free(self->current_scene->textures_manager, id);
+    bool ok = idmgr_free(scene->textures_manager, id);
     if (ok) free(t);
     return ok;
 }
@@ -314,18 +321,22 @@ void Tropic_cleanup(Tropic* self)
 {
     if (!self) return;
 
-    if (self->current_scene) {
-        if (self->current_scene->entities) {
-            vector_free(self->current_scene->entities);
-            self->current_scene->entities = NULL;
-        }
-        if (self->current_scene->cameras) {
-            vector_free(self->current_scene->cameras);
-            self->current_scene->cameras = NULL;
-        }
-        free(self->current_scene);
-        self->current_scene = NULL;
+    while ( self->scenes && vector_size( self->scenes ) > 0 ) {
+        SceneID scene_id = self->scenes[0];
+        (void)Tropic_freeScene( Tropic_getByPtr( self ), scene_id );
     }
+
+    if ( self->scenes ) {
+        vector_free( self->scenes );
+        self->scenes = NULL;
+    }
+
+    if ( self->scene_manager ) {
+        idmgr_destroy( self->scene_manager );
+        self->scene_manager = NULL;
+    }
+
+    self->current_scene = 0;
 
     if (self->state.game_title) {
         free(self->state.game_title);
@@ -336,21 +347,4 @@ void Tropic_cleanup(Tropic* self)
         self->state.level_name = NULL;
     }
 
-    /* Free all objects/meshes/textures payloads and destroy managers */
-    if (self->current_scene->objects_manager) {
-        idmgr_free_all(self->current_scene->objects_manager, free);
-        self->current_scene->objects_manager = NULL;
-    }
-    if (self->current_scene->meshes_manager) {
-        idmgr_free_all(self->current_scene->meshes_manager, free);
-        self->current_scene->meshes_manager = NULL;
-    }
-    if (self->current_scene->textures_manager) {
-        idmgr_free_all(self->current_scene->textures_manager, free);
-        self->current_scene->textures_manager = NULL;
-    }
-    if (self->current_scene->cameras_manager) {
-        idmgr_free_all(self->current_scene->cameras_manager, free);
-        self->current_scene->cameras_manager = NULL;
-    }
 }

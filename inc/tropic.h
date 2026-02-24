@@ -22,9 +22,12 @@ typedef struct sTropic
     GLFWwindow* window;
     /* change to pointer */
     TropicGameState state;
-    Scene* current_scene;
+    //Scene* current_scene;
+    SceneID current_scene;
+    vector( SceneID ) scenes;
 
     /* Resource pools */
+    IDManager* scene_manager;
 
     //Renderer* renderer;
     // Add more fields as needed
@@ -48,20 +51,23 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 int Tropic_getNumObjectsInScene( TropicID engine );
 int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
 
+/* Current scene resolver */
+Scene* Tropic_getCurrentScenePtr( Tropic* self );
+
 /* Object pool APIs */
 ObjectID Tropic_newObject(TropicID engine_id, const Object* proto);
 Object*  Tropic_getObject( TropicID engine_id, ObjectID id);
 bool      Tropic_freeObject( TropicID engine_id, ObjectID id);
 
 /* Mesh pool APIs */
-MeshID   Tropic_newMesh(Tropic* self, const Mesh* proto);
-Mesh*    Tropic_getMesh(Tropic* self, MeshID id);
-bool     Tropic_freeMesh(Tropic* self, MeshID id);
+MeshID   Tropic_newMesh(TropicID engine_id, const Mesh* proto);
+Mesh*    Tropic_getMesh(TropicID engine_id, MeshID id);
+bool     Tropic_freeMesh(TropicID engine_id, MeshID id);
 
 /* Texture pool APIs */
-TextureID Tropic_newTexture(Tropic* self, const Texture* proto);
-Texture*  Tropic_getTexture(Tropic* self, TextureID id);
-bool      Tropic_freeTexture(Tropic* self, TextureID id);
+TextureID Tropic_newTexture(TropicID engine_id, const Texture* proto);
+Texture*  Tropic_getTexture(TropicID engine_id, TextureID id);
+bool      Tropic_freeTexture(TropicID engine_id, TextureID id);
 
 void Tropic_update(Tropic* self, float delta_time);
 void Tropic_render(Tropic* self);
