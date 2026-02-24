@@ -6,6 +6,7 @@
 
 /* Typed aliases for clarity */
 typedef Handle TropicID;
+typedef Handle SceneID;
 typedef Handle ObjectID;
 typedef Handle MeshID;
 typedef Handle TextureID;

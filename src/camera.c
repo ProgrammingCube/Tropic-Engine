@@ -26,7 +26,7 @@ CameraID Tropic_newCamera( TropicID engine_id,
     c->roll = roll;
 
     // add to Handler
-    Handle h = idmgr_alloc( self->cameras, c );
+    Handle h = idmgr_alloc( self->current_scene->cameras_manager, c );
     if ( h == 0 ) { free( c ); return 0; }
     c->id = ( CameraID )h;
     if ( c->id != 0 )
@@ -50,14 +50,14 @@ TropicCamera* Tropic_getCamera( TropicID engine_id, CameraID id )
 {
     Tropic *self = Tropic_getById( engine_id );
     if ( !self ) return NULL;
-    return ( TropicCamera* )idmgr_get( self->cameras, id );
+    return ( TropicCamera* )idmgr_get( self->current_scene->cameras_manager, id );
 }
 
 TropicCamera* Tropic_getActiveCamera( TropicID engine_id )
 {
     Tropic *self = Tropic_getById( engine_id );
     if ( !self ) return NULL;
-    return ( TropicCamera* )idmgr_get( self->cameras, self->current_scene->active_camera );
+    return ( TropicCamera* )idmgr_get( self->current_scene->cameras_manager, self->current_scene->active_camera );
 }
 
 CameraID Tropic_getActiveCameraId( TropicID engine_id )

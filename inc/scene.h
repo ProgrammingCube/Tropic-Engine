@@ -15,6 +15,12 @@ typedef struct sScene
     void (*on_update)(struct sScene* self, float delta_time);
     void (*on_render)(struct sScene* self);
     void (*on_exit)(struct sScene* self);
+
+    /* resource pools */
+    IDManager* cameras_manager;
+    IDManager* objects_manager;
+    IDManager* meshes_manager;
+    IDManager* textures_manager;
 } Scene;
 
 #endif /* SCENE_H */

@@ -25,15 +25,9 @@ typedef struct sTropic
     Scene* current_scene;
 
     /* Resource pools */
-    IDManager* cameras;
-    IDManager* objects;
-    IDManager* meshes;
-    IDManager* textures;
 
     //Renderer* renderer;
     // Add more fields as needed
-    
-
 } Tropic;
 
 
