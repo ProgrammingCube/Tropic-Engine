@@ -74,6 +74,21 @@ CameraID Tropic_getActiveCameraId( TropicID engine_id )
     return scene->active_camera;
 }
 
+bool Tropic_lookAtObjectById( TropicID engine, ObjectID object_id )
+{
+    Tropic *self = Tropic_getById(engine);
+    Scene *scene = Tropic_getCurrentScenePtr(self);
+    if (!self || !scene || object_id == 0) return false;
+
+    Object *object = Tropic_getObject(engine, object_id);
+    if (!object || !object->active) return false;
+
+    TropicCamera *camera = Tropic_getActiveCamera(engine);
+    if (!camera) return false;
+
+    return Tropic_setCameraTarget(engine, camera->id, object->pos);
+}
+
 bool Tropic_setCameraFOV( TropicID engine_id, CameraID camera_id, float fov )
 {
     TropicCamera *c = Tropic_getCamera( engine_id, camera_id );

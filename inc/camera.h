@@ -27,7 +27,7 @@ bool Tropic_setCamera( TropicID engine_id, CameraID camera_id );
 TropicCamera* Tropic_getCamera( TropicID engine_id, CameraID camera_id );
 TropicCamera* Tropic_getActiveCamera( TropicID engine_id );
 CameraID Tropic_getActiveCameraId( TropicID engine_id );
-
+bool Tropic_lookAtObjectById( TropicID engine, ObjectID object_id );
 /* helper functions for camera manipulation */
 bool Tropic_setCameraFOV( TropicID engine_id, CameraID camera_id, float fov );
 float Tropic_getCameraFOV( TropicID engine_id, CameraID camera_id );
