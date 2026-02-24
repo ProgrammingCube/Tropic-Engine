@@ -2,7 +2,6 @@
 #define SCENE_H
 #include <vector.h>
 #include "object.h"
-//#include "camera.h"
 #include "handles.h"
 
 typedef struct sScene

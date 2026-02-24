@@ -1,4 +1,8 @@
+#include "tropic.h"
 #include "camera.h"
+
+#include <stdlib.h>
+#include <string.h>
 
 CameraID Tropic_newCamera( TropicID engine_id,
                            vec3 position,
@@ -15,6 +19,11 @@ CameraID Tropic_newCamera( TropicID engine_id,
     // set up memory for TropicCamera
     memset( c, 0, sizeof( TropicCamera ) );
     c->active = true;
+    glm_vec3_copy( position, c->position );
+    glm_vec3_copy( up, c->up );
+    glm_vec3_copy( target, c->target );
+    c->fov = fov;
+    c->roll = roll;
 
     // add to Handler
     Handle h = idmgr_alloc( self->cameras, c );
@@ -49,4 +58,86 @@ TropicCamera* Tropic_getActiveCamera( TropicID engine_id )
     Tropic *self = Tropic_getById( engine_id );
     if ( !self ) return NULL;
     return ( TropicCamera* )idmgr_get( self->cameras, self->current_scene->active_camera );
+}
+
+CameraID Tropic_getActiveCameraId( TropicID engine_id )
+{
+    Tropic *self = Tropic_getById( engine_id );
+    if ( !self ) return 0;
+    return self->current_scene->active_camera;
+}
+
+bool Tropic_setCameraFOV( TropicID engine_id, CameraID camera_id, float fov )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    c->fov = fov;
+    return true;
+}
+
+float Tropic_getCameraFOV( TropicID engine_id, CameraID camera_id )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return 0.0f;
+    return c->fov;
+}
+
+bool Tropic_setCameraPosition( TropicID engine_id, CameraID camera_id, vec3 position )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    glm_vec3_copy( position, c->position );
+    return true;
+}
+
+void Tropic_getCameraPosition( TropicID engine_id, CameraID camera_id, vec3 *out_position )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c || !out_position ) return;
+    glm_vec3_copy( c->position, *out_position );
+}
+
+bool Tropic_setCameraTarget( TropicID engine_id, CameraID camera_id, vec3 target )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    glm_vec3_copy( target, c->target );
+    return true;
+}
+
+void Tropic_getCameraTarget( TropicID engine_id, CameraID camera_id, vec3 *out_target )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c || !out_target ) return;
+    glm_vec3_copy( c->target, *out_target );
+}
+
+bool Tropic_setCameraUp( TropicID engine_id, CameraID camera_id, vec3 up )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    glm_vec3_copy( up, c->up );
+    return true;
+}
+
+void Tropic_getCameraUp( TropicID engine_id, CameraID camera_id, vec3 *out_up )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c || !out_up ) return;
+    glm_vec3_copy( c->up, *out_up );
+}
+
+bool Tropic_setCameraRoll( TropicID engine_id, CameraID camera_id, float roll )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    c->roll = roll;
+    return true;
+}
+
+float Tropic_getCameraRoll( TropicID engine_id, CameraID camera_id )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return 0.0f;
+    return c->roll;
 }

@@ -12,6 +12,7 @@ static void _initializeCurrentScene(Tropic* self)
     self->current_scene->name = "Default Scene";
     self->current_scene->entities = NULL;
     self->current_scene->cameras = NULL;
+    self->current_scene->active_camera = 0;
     self->current_scene->on_enter = NULL;  // Set to actual function pointers as needed
     self->current_scene->on_update = NULL;
     self->current_scene->on_render = NULL;
@@ -23,6 +24,8 @@ static void _initializeCurrentScene(Tropic* self)
 static bool _Tropic_init(Tropic* self)
 {
     if (!self) return 0;
+
+    self->window = NULL;
 
     /* Initialize game state strings */
     self->state.game_title = strdup("Tropic Engine Test");
@@ -37,6 +40,7 @@ static bool _Tropic_init(Tropic* self)
     self->objects = idmgr_create(256);
     self->meshes = idmgr_create(128);
     self->textures = idmgr_create(128);
+    self->cameras = idmgr_create(32);
 
     // Initialize the current scene with default values
     _initializeCurrentScene(self);
@@ -55,6 +59,20 @@ TropicID Tropic_create(void)
     if (!_Tropic_init(e)) { free(e); return 0; }
     Handle h = idmgr_alloc(_engines_mgr, e);
     if (h == 0) { Tropic_cleanup(e); free(e); return 0; }
+
+    CameraID default_camera = Tropic_newCamera((TropicID)h,
+                                               (vec3){ 0.0f, 0.0f, 10.0f },
+                                               (vec3){ 0.0f, 1.0f, 0.0f },
+                                               (vec3){ 0.0f, 0.0f, 0.0f },
+                                               60.0f,
+                                               0.0f);
+    if (default_camera == 0 || !Tropic_setCamera((TropicID)h, default_camera)) {
+        Tropic_cleanup(e);
+        idmgr_free(_engines_mgr, h);
+        free(e);
+        return 0;
+    }
+
     return (TropicID)h;
 }
 
@@ -301,6 +319,10 @@ void Tropic_cleanup(Tropic* self)
             vector_free(self->current_scene->entities);
             self->current_scene->entities = NULL;
         }
+        if (self->current_scene->cameras) {
+            vector_free(self->current_scene->cameras);
+            self->current_scene->cameras = NULL;
+        }
         free(self->current_scene);
         self->current_scene = NULL;
     }
@@ -326,5 +348,9 @@ void Tropic_cleanup(Tropic* self)
     if (self->textures) {
         idmgr_free_all(self->textures, free);
         self->textures = NULL;
+    }
+    if (self->cameras) {
+        idmgr_free_all(self->cameras, free);
+        self->cameras = NULL;
     }
 }

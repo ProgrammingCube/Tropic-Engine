@@ -14,14 +14,7 @@ int main( int argc, char *argv[] )
     (void)argc; (void)argv; // Unused parameters
     /* create engine via handle API */
     TropicID tropicEngine = Tropic_create();
-    CameraID mainCamera = Tropic_newCamera( tropicEngine,
-                                            (vec3){ 0.0f, 0.0f, 10.0f },
-                                            (vec3){ 0.0f, 0.0f, 0.0f  },
-                                            (vec3){ 0.0f, 1.0f, 0.0f  },
-                                            60.0f,
-                                            0.0f
-                                          );
-    Tropic_setCamera( tropicEngine, mainCamera );
+    CameraID mainCamera = Tropic_getActiveCameraId( tropicEngine );
 
     Tropic_CreateWindow( tropicEngine, 1280, 720, "Tropic Engine Test", false );
 
@@ -37,6 +30,9 @@ int main( int argc, char *argv[] )
     printf("Level: %s (%s)\n", state->game_title, state->level_name);
     printf("Play Speed: %f\n", state->play_speed);
 
+    /* print camera fov to test camera is working */
+    float fov = Tropic_getCameraFOV( tropicEngine, mainCamera );
+    printf("Main Camera FOV: %f\n", fov);
 
     /* main loop */
     while ( Tropic_Update( tropicEngine ) )
