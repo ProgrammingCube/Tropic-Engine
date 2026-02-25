@@ -9,14 +9,34 @@
 * Add comments and documentation to all functions and data structures.
 */
 
+char keyboard[256] = {0};
+
+static void _key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
+{
+    (void)scancode; (void)mods;
+
+    if ( key == GLFW_KEY_ESCAPE && action == GLFW_PRESS )
+    {
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
+    }
+
+    if ( action == GLFW_PRESS )
+    {
+        keyboard[ key ] = 1;
+    }
+    else if ( action == GLFW_RELEASE )
+    {
+        keyboard[ key ] = 0;
+    }
+}
+
 int main( int argc, char *argv[] )
 {
-    (void)argc; (void)argv; // Unused parameters
-    /* create engine via handle API */
+    (void)argc; (void)argv;
     TropicID tropicEngine = Tropic_create();
-    CameraID mainCamera = Tropic_getActiveCameraId( tropicEngine );
 
     Tropic_CreateWindow( tropicEngine, 1280, 720, "Tropic Engine Test", false );
+    glfwSetKeyCallback( Tropic_getWindow( tropicEngine ), _key_callback );
 
     int num_objects = 0;
     LevelSpec* parsedData = parseLevel("../assets/levels/test_level.json", &num_objects );
@@ -24,19 +44,40 @@ int main( int argc, char *argv[] )
 
     Tropic_loadObjects( tropicEngine, objects, num_objects );
 
-
-     /* print level info from engine->state */
-    TropicGameState* state = Tropic_getGameState( tropicEngine );
-    printf("Level: %s (%s)\n", state->game_title, state->level_name);
-    printf("Play Speed: %f\n", state->play_speed);
-
-    /* print camera fov to test camera is working */
-    float fov = Tropic_getCameraFOV( tropicEngine, mainCamera );
-    printf("Main Camera FOV: %f\n", fov);
-
     /* main loop */
     while ( Tropic_Update( tropicEngine ) )
     {
+        static double last_time = 0.0;
+        double current_time = glfwGetTime();
+        double delta_time = current_time - last_time;
+        last_time = current_time;
+
+        ObjectID id = Tropic_findFirstObjectOfType( tropicEngine, TYPE_PLATFORM );
+
+        float speed = 5.0f * Tropic_getGameState(tropicEngine)->play_speed;
+        float step = speed * delta_time;
+
+        vec3 translation = {0.0f, 0.0f, 0.0f};
+
+        if ( keyboard[GLFW_KEY_W] ) {
+            translation[1] += step;
+        }
+        if ( keyboard[GLFW_KEY_S] ) {
+            translation[1] -= step;
+        }
+        if ( keyboard[GLFW_KEY_A] ) {
+            translation[0] -= step;
+        }
+        if ( keyboard[GLFW_KEY_D] ) {
+            translation[0] += step;
+        }
+        if ( keyboard[GLFW_KEY_Q] ) {
+            translation[2] += step;
+        }
+        if ( keyboard[GLFW_KEY_E] ) {
+            translation[2] -= step;
+        }
+        Tropic_translateObject(tropicEngine, id, translation);
         Tropic_Render( tropicEngine );
     }
 

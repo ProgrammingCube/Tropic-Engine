@@ -42,6 +42,8 @@ TropicID Tropic_getByPtr(Tropic* ptr);
 bool     Tropic_destroy(TropicID id);
 TropicGameState* Tropic_getGameState( TropicID id );
 
+TropicWindowID* Tropic_getWindow( TropicID engine_id );
+
 /* Core lifecycle */
 TropicWindowID* Tropic_CreateWindow( TropicID engine_id, int width, int height, const char* title, bool fullscreen );
 int Tropic_Update( TropicID engine_id );
@@ -54,11 +56,6 @@ int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
 
 /* Current scene resolver */
 Scene* Tropic_getCurrentScenePtr( Tropic* self );
-
-/* Object pool APIs */
-ObjectID Tropic_newObject(TropicID engine_id, const Object* proto);
-Object*  Tropic_getObject( TropicID engine_id, ObjectID id);
-bool      Tropic_freeObject( TropicID engine_id, ObjectID id);
 
 /* Mesh pool APIs */
 MeshID   Tropic_newMesh(TropicID engine_id, const Mesh* proto);

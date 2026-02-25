@@ -44,4 +44,14 @@ typedef struct sObject
     Mesh mesh;
 } Object;
 
+ObjectID Tropic_newObject(TropicID engine_id, const Object* proto);
+Object*  Tropic_getObject( TropicID engine_id, ObjectID id);
+bool     Tropic_freeObject( TropicID engine_id, ObjectID id);
+
+ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type );
+
+bool Tropic_translateObject( TropicID engine_id, ObjectID id, vec3 translation );
+bool Tropic_rotateObject( TropicID engine_id, ObjectID id, vec3 rotation );
+bool Tropic_scaleObject( TropicID engine_id, ObjectID id, vec3 scale );
+
 #endif /* OBJECT_H */

@@ -9,220 +9,204 @@ This bare bones game engine boasts simple scene management, multiple cameras, wo
 ---
 
 ## 📖 Table of Contents
+
 - [Requirements](#requirements)
-- [Core Structures](#core-structures)
-  - [Tropic Engine](#struct-tropic)
-  - [Scene](#struct-scene)
-  - [Object](#struct-object)
-  - [TropicGameState](#struct-tropicgamestate)
-- [Engine API](#engine-api)
-  - [Engine Handle APIs](#engine-handle-apis)
-    - [Tropic_create](#tropic_create)
-    - [Tropic_getById](#tropic_getbyid)
-    - [Tropic_getByPtr](#tropic_getbyptr)
-    - [Tropic_destroy](#tropic_destroy)
-    - [Tropic_getGameState](#tropic_getgamestate)
-  - [Core Lifecycle APIs](#core-lifecycle-apis)
-    - [Tropic_parseLevel](#tropic_parselevel)
-    - [Tropic_loadObjects](#tropic_loadobjects)
-    - [Tropic_getNumObjectsInScene](#tropic_getnumobjectsinscene)
-    - [Tropic_getNumObjectsByType](#tropic_getnumobjectsbytype)
-    - [Tropic_update](#tropic_update)
-    - [Tropic_render](#tropic_render)
-    - [Tropic_cleanup](#tropic_cleanup)
-  - [Object Pool APIs](#object-pool-apis)
-    - [Tropic_newObject](#tropic_newobject)
-    - [Tropic_getObject](#tropic_getobject)
-    - [Tropic_freeObject](#tropic_freeobject)
-  - [Mesh Pool APIs](#mesh-pool-apis)
-    - [Tropic_newMesh](#tropic_newmesh)
-    - [Tropic_getMesh](#tropic_getmesh)
-    - [Tropic_freeMesh](#tropic_freemesh)
-  - [Texture Pool APIs](#texture-pool-apis)
-    - [Tropic_newTexture](#tropic_newtexture)
-    - [Tropic_getTexture](#tropic_gettexture)
-    - [Tropic_freeTexture](#tropic_freetexture)
+- [Build & Run](#build-and-run)
+- [How It Works (from `engine_test`)](#how-it-works)
+- [Core Data Model](#core-data-model)
+- [Public API Snapshot](#public-api-snapshot)
+- [Level Loading Notes](#level-loading-notes)
+- [Project Layout](#project-layout)
+- [Wiki Starter](#wiki-starter)
+- [Docs Maintenance](#docs-maintenance)
 
 ---
 
+<a id="requirements"></a>
 ## 🛠️ Requirements
 
-### Libraries
-<a href="https://github.com/ProgrammingCube/c_vector" target="_blank">CVector</a>  
-<a href="https://github.com/DaveGamble/cJSON" target="_blank">cJSON</a>
+Tropic currently builds as a C11 static library with a test executable via CMake.
 
-## 🥥 Core Structures
+### Dependencies
 
-### Struct: Tropic
-*(Add description of the `Tropic` engine struct here. E.g., its role as the root context, how it manages resource ID managers, the current scene, etc.)*
+- [cJSON](https://github.com/DaveGamble/cJSON)
+- [CVector](https://github.com/ProgrammingCube/c_vector)
+- [GLFW 3](https://www.glfw.org/)
+- OpenGL
+- [cglm](https://github.com/recp/cglm) (fetched by CMake)
 
-### Struct: Scene
-*(Add description of the `Scene` struct here. E.g., how it manages spatial partitions, environments, cameras, and local object hierarchies.)*
+### Tooling
 
-### Struct: Object
-*(Add description of the `Object` struct here. E.g., what components make up a game object, transform data, physics bodies, and mesh/texture assignments.)*
-
-### Struct: TropicGameState
-*(Add description of the `TropicGameState` struct here. E.g., how it tracks current engine state, paused/playing status, physics ticks, or global world data.)*
+- CMake 3.14+
+- A C compiler with C11 support (`gcc`/`clang`)
 
 ---
 
-## 🌊 Engine API
+<a id="build-and-run"></a>
+## 🚀 Build & Run
 
-### Engine Handle APIs
+```bash
+cmake -S . -B build
+cmake --build build
+./build/tests/tropic_test
+```
 
-#### `Tropic_create`
-Initializes and allocates a new instance of the Tropic engine.
-* **Parameters:** None
-* **Returns:** `TropicID` - A unique identifier handle for the newly created engine instance.
-
-#### `Tropic_getById`
-Retrieves the engine instance pointer associated with a given handle ID.
-* **Parameters:** 
-  * `id` (`TropicID`): The handle ID of the target engine.
-* **Returns:** `Tropic*` - A pointer to the Tropic engine struct. Returns `NULL` if the ID is invalid.
-
-#### `Tropic_getByPtr`
-Retrieves the handle ID for a given engine pointer.
-* **Parameters:**
-  * `ptr` (`Tropic*`): A pointer to an active Tropic engine instance.
-* **Returns:** `TropicID` - The handle ID associated with the provided pointer.
-
-#### `Tropic_destroy`
-Destroys an engine instance and cleans up its associated high-level memory allocations.
-* **Parameters:**
-  * `id` (`TropicID`): The handle ID of the engine to destroy.
-* **Returns:** `bool` - `true` if destruction was successful, `false` otherwise.
-
-#### `Tropic_getGameState`
-Fetches a pointer to the engine's current GameState struct.
-* **Parameters:**
-  * `id` (`TropicID`): The handle ID of the target engine.
-* **Returns:** `TropicGameState*` - Pointer to the game state structure representing current engine status.
+> If your distro uses different package names for dependencies, install equivalents for `cjson`, `glfw3`, and OpenGL dev headers.
 
 ---
 
-### Core Lifecycle APIs
+<a id="how-it-works"></a>
+## 🌊 How It Works (from `engine_test`)
 
-#### `Tropic_parseLevel`
-Parses a level file (e.g., JSON) and prepares it for loading.
-* **Parameters:**
-  * `engine` (`TropicID`): The engine handle ID.
-  * `level_path` (`const char*`): The file path to the level asset.
-  * `out_num_objects` (`int*`): A pointer to an integer that will be populated with the number of objects parsed from the level.
-* **Returns:** `void*` - A pointer to the parsed level data (e.g., `ObjectSpec` array).
+The current test app (`tests/engine_test.c`) demonstrates the full expected loop:
 
-#### `Tropic_loadObjects`
-Loads an array of object specifications into the engine's active scene and object pools.
-* **Parameters:**
-  * `engine` (`TropicID`): The engine handle ID.
-  * `objects` (`ObjectSpec*`): Pointer to the array of parsed object specifications.
-  * `num_objects` (`int`): The number of objects to load from the array.
-* **Returns:** Void.
+1. Create engine: `Tropic_create`
+2. Create window/context: `Tropic_CreateWindow`
+3. Parse and convert level JSON: `parseLevel` + `levelspec_to_objects`
+4. Load objects into current scene: `Tropic_loadObjects`
+5. Per-frame loop:
+   - `Tropic_Update`
+   - input-driven object movement (`Tropic_translateObject`)
+   - `Tropic_Render`
+6. Shutdown: `Tropic_destroy`
 
-#### `Tropic_getNumObjectsInScene`
-Counts the total number of instantiated objects currently residing in the active scene.
-* **Parameters:**
-  * `engine` (`TropicID`): The engine handle ID.
-* **Returns:** `int` - The total count of active objects.
-
-#### `Tropic_getNumObjectsByType`
-Counts the number of instantiated objects belonging to a specific `ObjectType`.
-* **Parameters:**
-  * `engine` (`TropicID`): The engine handle ID.
-  * `type` (`ObjectType`): The type classification to filter by.
-* **Returns:** `int` - The total count of matching objects.
-
-#### `Tropic_update`
-Advances the game logic, physics, and state by one frame based on elapsed time.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `delta_time` (`float`): The time elapsed (in seconds) since the last frame.
-* **Returns:** Void.
-
-#### `Tropic_render`
-Dispatches the draw calls for the current scene, drawing all visible meshes/textures via OpenGL.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-* **Returns:** Void.
-
-#### `Tropic_cleanup`
-Performs a deep clean of the engine instance, freeing all resource pools (objects, meshes, textures) and terminating the scene cleanly.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-* **Returns:** Void.
+This is the best “source of truth” right now for how all modules fit together.
 
 ---
 
-### Object Pool APIs
+<a id="core-data-model"></a>
+## 🥥 Core Data Model
 
-#### `Tropic_newObject`
-Allocates and registers a new game object inside the engine's Object IDManager pool.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `proto` (`const Object*`): An optional prototype object to clone data from (can be `NULL` for an empty object).
-* **Returns:** `ObjectID` - The handle ID for the newly created object.
+### `Tropic`
 
-#### `Tropic_getObject`
-Retrieves a pointer to an active object from the pool using its ID.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`ObjectID`): The handle ID of the target object.
-* **Returns:** `Object*` - Pointer to the object, or `NULL` if invalid/freed.
+Root engine context with:
+- GLFW window pointer
+- global `TropicGameState`
+- active scene handle
+- scene handle list + scene ID manager
 
-#### `Tropic_freeObject`
-Frees an object from the pool and recycles its ID.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`ObjectID`): The handle ID of the object to free.
-* **Returns:** `bool` - `true` if successfully freed, `false` otherwise.
+### `Scene`
 
----
+Owns scene-local pools and runtime data:
+- object/camera/mesh/texture/shader managers
+- entity list and camera list
+- active camera
+- default platform mesh/shader handles for renderer bootstrapping
 
-### Mesh Pool APIs
+### `Object`
 
-#### `Tropic_newMesh`
-Loads and registers a new Mesh into the engine's Mesh IDManager pool.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `proto` (`const Mesh*`): Pointer to the mesh data/prototype to copy into the pool.
-* **Returns:** `MeshID` - The handle ID for the registered mesh.
+Per-entity state:
+- `ObjectID`
+- transform (`pos`, `scale`, `rot`)
+- object type (`ObjectType`)
+- mesh + shader handles
+- active flag
 
-#### `Tropic_getMesh`
-Retrieves a pointer to a registered mesh.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`MeshID`): The handle ID of the target mesh.
-* **Returns:** `Mesh*` - Pointer to the mesh struct, or `NULL` if invalid/freed.
+### `TropicGameState`
 
-#### `Tropic_freeMesh`
-Releases mesh data from GPU/CPU memory and frees its ID in the pool.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`MeshID`): The handle ID of the mesh to free.
-* **Returns:** `bool` - `true` if successfully freed, `false` otherwise.
+Global gameplay metadata:
+- `game_title`
+- `level_name`
+- `play_speed`
 
 ---
 
-### Texture Pool APIs
+<a id="public-api-snapshot"></a>
+## 🔧 Public API Snapshot
 
-#### `Tropic_newTexture`
-Loads and registers a new Texture into the engine's Texture IDManager pool.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `proto` (`const Texture*`): Pointer to the texture data/prototype to copy into the pool.
-* **Returns:** `TextureID` - The handle ID for the registered texture.
+> API list here is aligned to current headers (`inc/tropic.h`, `inc/object.h`, `inc/scene.h`, `inc/camera.h`).
 
-#### `Tropic_getTexture`
-Retrieves a pointer to a registered texture.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`TextureID`): The handle ID of the target texture.
-* **Returns:** `Texture*` - Pointer to the texture struct, or `NULL` if invalid/freed.
+### Engine / lifecycle
 
-#### `Tropic_freeTexture`
-Releases texture data from GPU/CPU memory and frees its ID in the pool.
-* **Parameters:**
-  * `self` (`Tropic*`): Pointer to the engine instance.
-  * `id` (`TextureID`): The handle ID of the texture to free.
-* **Returns:** `bool` - `true` if successfully freed, `false` otherwise.
+- `Tropic_create`, `Tropic_destroy`, `Tropic_getById`, `Tropic_getByPtr`
+- `Tropic_CreateWindow`, `Tropic_getWindow`, `Tropic_Update`, `Tropic_Render`
+- `Tropic_getGameState`
+- `Tropic_loadObjects`, `Tropic_getNumObjectsInScene`, `Tropic_getNumObjectsByType`
+
+### Scene APIs
+
+- `Tropic_createScene`, `Tropic_getSceneByID`, `Tropic_getCurrentScene`
+- `Tropic_getCurrentSceneID`, `Tropic_setCurrentScene`, `Tropic_freeScene`
+
+### Object APIs
+
+- `Tropic_newObject`, `Tropic_getObject`, `Tropic_freeObject`
+- `Tropic_findFirstObjectOfType`
+- `Tropic_translateObject`, `Tropic_rotateObject`, `Tropic_scaleObject`
+
+### Camera APIs
+
+- `Tropic_newCamera`, `Tropic_setCamera`, `Tropic_getCamera`
+- `Tropic_getActiveCamera`, `Tropic_getActiveCameraId`
+- `Tropic_lookAtObjectById`
+- camera property getters/setters (`FOV`, `position`, `target`, `up`, `roll`)
+
+### Resource pool APIs
+
+- Mesh: `Tropic_newMesh`, `Tropic_getMesh`, `Tropic_freeMesh`
+- Texture: `Tropic_newTexture`, `Tropic_getTexture`, `Tropic_freeTexture`
+- Shader: `Tropic_newShader`, `Tropic_getShader`, `Tropic_freeShader`
+
+---
+
+<a id="level-loading-notes"></a>
+## 🧭 Level Loading Notes
+
+- The runtime engine symbol `Tropic_parseLevel` is currently a weak stub in `src/tropic.c`.
+- Actual JSON parsing used by the test app lives in `tests/level_loader.c` via:
+  - `parseLevel(const char* path, int* out_num_objects)`
+  - `levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_objects)`
+- Current object families in level files: `platforms`, `spikes`, `jumppads`.
+
+Sample level file: `assets/levels/test_level.json`
+
+---
+
+<a id="project-layout"></a>
+## 🗂️ Project Layout
+
+- `inc/` — public headers and core engine types
+- `src/` — engine implementation
+- `tests/` — test executable + level parsing helper
+- `assets/levels/` — test level JSON
+- `assets/shaders/` — default platform shaders
+
+---
+
+<a id="wiki-starter"></a>
+## 📚 Wiki Starter
+
+To keep this README focused, long-form docs are started under `docs/wiki/`:
+
+- [docs/wiki/Home.md](docs/wiki/Home.md)
+- [docs/wiki/Engine-API.md](docs/wiki/Engine-API.md)
+- [docs/wiki/Level-Format.md](docs/wiki/Level-Format.md)
+
+If you later enable GitHub Wiki for this repo, these files can be copied over as initial pages.
+
+---
+
+<a id="docs-maintenance"></a>
+## 🧰 Docs Maintenance
+
+Use this lightweight rule of thumb to keep docs accurate without extra overhead:
+
+1. **When a public function signature changes**
+  - Update `inc/*.h`
+  - Update [docs/wiki/Engine-API.md](docs/wiki/Engine-API.md)
+  - If the change affects first-time users, update [README.md](README.md)
+
+2. **When runtime behavior changes** (scene flow, render setup, object lifecycle)
+  - Update [README.md](README.md) in “How It Works” or “Core Data Model”
+  - Add deeper notes to wiki pages (preferred for long explanations)
+
+3. **When level JSON format changes**
+  - Update parser expectations in [docs/wiki/Level-Format.md](docs/wiki/Level-Format.md)
+  - Keep sample asset references current (`assets/levels/test_level.json`)
+
+4. **Before merging doc-impacting changes**
+  - Quick check: README links still work
+  - Quick check: wiki page links still work
+  - Quick check: function names in docs match headers exactly
+
+This keeps the README concise while letting the wiki grow into full reference docs.
