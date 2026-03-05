@@ -14,7 +14,9 @@ This bare bones game engine boasts simple scene management, multiple cameras, wo
 - [Build & Run](#build-and-run)
 - [How It Works (from `engine_test`)](#how-it-works)
 - [Core Data Model](#core-data-model)
+- [Handle Model (Updated)](#handle-model-updated)
 - [Public API Snapshot](#public-api-snapshot)
+- [Render Workflow](#render-workflow)
 - [Level Loading Notes](#level-loading-notes)
 - [Project Layout](#project-layout)
 - [Wiki Starter](#wiki-starter)
@@ -61,14 +63,15 @@ cmake --build build
 The current test app (`tests/engine_test.c`) demonstrates the full expected loop:
 
 1. Create engine: `Tropic_create`
-2. Create window/context: `Tropic_CreateWindow`
-3. Parse and convert level JSON: `parseLevel` + `levelspec_to_objects`
-4. Load objects into current scene: `Tropic_loadObjects`
-5. Per-frame loop:
+2. Set active engine: `Tropic_setActiveEngine`
+3. Create window/context: `Tropic_CreateWindow`
+4. Parse and convert level JSON: `parseLevel` + `levelspec_to_objects`
+5. Load objects into current scene: `Tropic_loadObjects`
+6. Per-frame loop:
    - `Tropic_Update`
    - input-driven object movement (`Tropic_translateObject`)
    - `Tropic_Render`
-6. Shutdown: `Tropic_destroy`
+7. Shutdown: `Tropic_destroy`
 
 This is the best “source of truth” right now for how all modules fit together.
 
@@ -111,6 +114,28 @@ Global gameplay metadata:
 
 ---
 
+<a id="handle-model-updated"></a>
+## 🧩 Handle Model (Updated)
+
+`ObjectID` and `CameraID` are scoped handles that include their owning scene.
+
+- Layout: `[scene:32][local:32]`
+- High 32 bits: `SceneID`
+- Low 32 bits: scene-local pool handle
+
+Helper functions in `inc/handles.h`:
+
+- `Tropic_makeObjectID`, `Tropic_makeCameraID`
+- `Tropic_getSceneIDFromObjectID`, `Tropic_getLocalHandleFromObjectID`
+- `Tropic_getSceneIDFromCameraID`, `Tropic_getLocalHandleFromCameraID`
+
+Practical behavior:
+
+- `Tropic_getObject` and `Tropic_getCamera` resolve scene from the ID itself.
+- You can query scene ownership directly without scanning all scenes.
+
+---
+
 <a id="public-api-snapshot"></a>
 ## 🔧 Public API Snapshot
 
@@ -122,6 +147,7 @@ Global gameplay metadata:
 - `Tropic_CreateWindow`, `Tropic_getWindow`, `Tropic_Update`, `Tropic_Render`
 - `Tropic_getGameState`
 - `Tropic_loadObjects`, `Tropic_getNumObjectsInScene`, `Tropic_getNumObjectsByType`
+- `Tropic_setActiveEngine`, `Tropic_getActiveEnginePtr`, `Tropic_getActiveEngineId`
 
 ### Scene APIs
 
@@ -131,6 +157,7 @@ Global gameplay metadata:
 ### Object APIs
 
 - `Tropic_newObject`, `Tropic_getObject`, `Tropic_freeObject`
+- `Tropic_getObjectScene`, `Tropic_getObjectEngine`
 - `Tropic_findFirstObjectOfType`
 - `Tropic_translateObject`, `Tropic_rotateObject`, `Tropic_scaleObject`
 
@@ -139,6 +166,7 @@ Global gameplay metadata:
 - `Tropic_newCamera`, `Tropic_setCamera`, `Tropic_getCamera`
 - `Tropic_getActiveCamera`, `Tropic_getActiveCameraId`
 - `Tropic_lookAtObjectById`
+- `Tropic_getCameraScene`
 - camera property getters/setters (`FOV`, `position`, `target`, `up`, `roll`)
 
 ### Resource pool APIs
@@ -146,6 +174,51 @@ Global gameplay metadata:
 - Mesh: `Tropic_newMesh`, `Tropic_getMesh`, `Tropic_freeMesh`
 - Texture: `Tropic_newTexture`, `Tropic_getTexture`, `Tropic_freeTexture`
 - Shader: `Tropic_newShader`, `Tropic_getShader`, `Tropic_freeShader`
+
+---
+
+<a id="render-workflow"></a>
+## 🎬 Render Workflow
+
+Use one of these expected workflows.
+
+### A) Level-driven rendering (recommended)
+
+1. `Tropic_create`
+2. `Tropic_setActiveEngine`
+3. `Tropic_CreateWindow`
+4. `parseLevel` and `levelspec_to_objects` (test layer)
+5. `Tropic_loadObjects`
+6. Main loop: `Tropic_Update` -> optional transform edits (`Tropic_translateObject`) -> `Tropic_Render`
+7. `Tropic_destroy`
+
+This is what `tests/engine_test.c` follows.
+
+### B) Manual object rendering (no level file)
+
+1. Create engine/window: `Tropic_create`, `Tropic_setActiveEngine`, `Tropic_CreateWindow`
+2. Ensure active scene exists or switch scene: `Tropic_createScene`, `Tropic_setCurrentScene`
+3. Create and activate camera: `Tropic_newCamera`, `Tropic_setCamera`
+4. Spawn object: `Tropic_newObject`
+5. Make object renderable:
+- For `TYPE_PLATFORM`, leave `mesh_id` and `shader_id` as `0` to use default scene platform assets
+- For `TYPE_GENERIC`, assign valid mesh/shader IDs from `Tropic_newMesh` and `Tropic_newShader`
+6. In your loop: `Tropic_Update` and `Tropic_Render`
+
+Minimal frame loop:
+
+```c
+while (Tropic_Update(engine_id)) {
+  Tropic_Render(engine_id);
+}
+```
+
+Troubleshooting when only clear color appears:
+
+- Level file path failed, so no objects were loaded
+- No active camera in the current scene
+- Object is `TYPE_GENERIC` but missing mesh/shader handles
+- Scene changed and IDs used belong to a different scene
 
 ---
 

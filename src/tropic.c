@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+TropicID _TROPIC_ACTIVE_ENGINE = 0;
+
 /* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
 
 static bool _Tropic_fileExists(const char *path)
@@ -413,6 +415,24 @@ int Tropic_getNumObjectsByType( TropicID engine, ObjectType type )
         }
     }
     return count;
+}
+
+bool Tropic_setActiveEngine( TropicID engine_id )
+{
+    Tropic *engine = Tropic_getById(engine_id);
+    if (!engine) return false;
+    _TROPIC_ACTIVE_ENGINE = engine_id;
+    return true;
+}
+
+Tropic* Tropic_getActiveEnginePtr( void )
+{
+    return Tropic_getById(_TROPIC_ACTIVE_ENGINE);
+}
+
+TropicID Tropic_getActiveEngineId( void )
+{
+    return _TROPIC_ACTIVE_ENGINE;
 }
 
 __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,

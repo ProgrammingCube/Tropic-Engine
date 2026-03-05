@@ -1,5 +1,7 @@
 #include "engine_test.h"
 
+#include <stdio.h>
+
 /*
 * TODO:
 * Add error handling and logging to all functions, especially those that can fail
@@ -34,13 +36,44 @@ int main( int argc, char *argv[] )
 {
     (void)argc; (void)argv;
     TropicID tropicEngine = Tropic_create();
+    Tropic_setActiveEngine( tropicEngine );
 
     Tropic_CreateWindow( tropicEngine, 1280, 720, "Tropic Engine Test", false );
     glfwSetKeyCallback( Tropic_getWindow( tropicEngine ), _key_callback );
 
     int num_objects = 0;
-    LevelSpec* parsedData = parseLevel("../assets/levels/test_level.json", &num_objects );
+    const char* level_candidates[] = {
+        "assets/levels/test_level.json",
+        "../assets/levels/test_level.json",
+        "../../assets/levels/test_level.json",
+    };
+
+    LevelSpec* parsedData = NULL;
+    const char* loaded_level_path = NULL;
+    for (size_t i = 0; i < sizeof(level_candidates) / sizeof(level_candidates[0]); i++) {
+        parsedData = parseLevel(level_candidates[i], &num_objects);
+        if (parsedData) {
+            loaded_level_path = level_candidates[i];
+            break;
+        }
+    }
+
+    if (!parsedData) {
+        fprintf(stderr, "Failed to load level file from known paths.\n");
+        Tropic_destroy(tropicEngine);
+        return 1;
+    }
+
     ObjectSpec* objects = levelspec_to_objects( parsedData, tropicEngine, &num_objects );
+    level_free(parsedData);
+
+    if (!objects || num_objects <= 0) {
+        fprintf(stderr, "Level loaded (%s) but produced no objects.\n", loaded_level_path);
+        Tropic_destroy(tropicEngine);
+        return 1;
+    }
+
+    fprintf(stdout, "Loaded %d objects from %s\n", num_objects, loaded_level_path);
 
     Tropic_loadObjects( tropicEngine, objects, num_objects );
 

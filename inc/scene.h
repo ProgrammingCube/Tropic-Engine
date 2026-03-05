@@ -4,9 +4,12 @@
 #include "object.h"
 #include "handles.h"
 
+typedef struct sTropic Tropic;
+
 typedef struct sScene
 {
     char *name;
+    Tropic* _engine_ptr;
     SceneID id;
     vector( ObjectID ) entities;                    // global vector of all entity handles in the game
     vector( CameraID ) cameras;
@@ -29,11 +32,11 @@ typedef struct sScene
     bool renderer_ready;
 } Scene;
 
-SceneID Tropic_createScene( TropicID engine_id, const char* name );
-Scene*  Tropic_getSceneByID( TropicID engine_id, SceneID scene_id );
-Scene*  Tropic_getCurrentScene( TropicID engine_id );
-SceneID Tropic_getCurrentSceneID( TropicID engine_id );
-bool    Tropic_setCurrentScene( TropicID engine_id, SceneID scene_id );
-bool    Tropic_freeScene( TropicID engine_id, SceneID scene_id );
+SceneID  Tropic_createScene( TropicID engine_id, const char* name );
+Scene*   Tropic_getSceneByID( TropicID engine_id, SceneID scene_id );
+Scene*   Tropic_getCurrentScene( TropicID engine_id );
+SceneID  Tropic_getCurrentSceneID( TropicID engine_id );
+bool     Tropic_setCurrentScene( TropicID engine_id, SceneID scene_id );
+bool     Tropic_freeScene( TropicID engine_id, SceneID scene_id );
 
 #endif /* SCENE_H */

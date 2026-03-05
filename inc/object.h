@@ -6,6 +6,8 @@
 #include "tropic_datatypes.h"
 #include "mesh.h"
 
+typedef struct sScene Scene;
+
 typedef enum eObjectType
 {
     TYPE_GENERIC,
@@ -33,6 +35,7 @@ typedef struct sObjectSpec
 
 typedef struct sObject
 {
+    Scene* _scene_ptr;
     ObjectID id;
     MeshID mesh_id;
     ShaderID shader_id;
@@ -47,6 +50,9 @@ typedef struct sObject
 ObjectID Tropic_newObject(TropicID engine_id, const Object* proto);
 Object*  Tropic_getObject( TropicID engine_id, ObjectID id);
 bool     Tropic_freeObject( TropicID engine_id, ObjectID id);
+
+SceneID  Tropic_getObjectScene( ObjectID id );
+TropicID Tropic_getObjectEngine( ObjectID id );
 
 ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type );
 

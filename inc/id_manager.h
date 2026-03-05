@@ -7,6 +7,7 @@
 
 /* Handle is a 32-bit value: [generation:16][index:16] */
 typedef uint32_t Handle;
+typedef uint64_t Handle64;
 
 typedef struct IDManager IDManager;
 

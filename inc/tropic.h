@@ -16,6 +16,8 @@
 #include "texture.h"
 #include "shader.h"
 
+extern TropicID _TROPIC_ACTIVE_ENGINE;
+
 // probably should move at least objects and cameras to scenes
 // refactor Scene to be SceneID vector and have Scene*'s be in the memory pool
 typedef struct sTropic
@@ -53,6 +55,11 @@ void* Tropic_parseLevel(TropicID engine, const char* level_path, int* out_num_ob
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
 int Tropic_getNumObjectsInScene( TropicID engine );
 int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
+
+// Sets active engine by TropicID. Needs to be an engine global
+bool Tropic_setActiveEngine( TropicID engine_id );
+Tropic* Tropic_getActiveEnginePtr( void );
+TropicID Tropic_getActiveEngineId( void );
 
 /* Current scene resolver */
 Scene* Tropic_getCurrentScenePtr( Tropic* self );

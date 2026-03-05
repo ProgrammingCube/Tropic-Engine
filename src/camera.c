@@ -27,24 +27,26 @@ CameraID Tropic_newCamera( TropicID engine_id,
     c->roll = roll;
 
     // add to Handler
-    Handle h = idmgr_alloc( scene->cameras_manager, c );
-    if ( h == 0 ) { free( c ); return 0; }
-    c->id = ( CameraID )h;
+    Handle local_id = idmgr_alloc( scene->cameras_manager, c );
+    if ( local_id == 0 ) { free( c ); return 0; }
+    c->id = Tropic_makeCameraID(scene->id, local_id);
     if ( c->id != 0 )
     {
         vector_push_back( scene->cameras, c->id );
         //self->current_scene->active_camera = c->id;
         // set up camera parameters here
     }
-    return ( CameraID )h;
+    return c->id;
 }
 
 bool Tropic_setCamera( TropicID engine_id, CameraID camera_id )
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScene( engine_id );
-    if ( !self || !scene ) return false;
-    TropicCamera *c = ( TropicCamera* )idmgr_get( scene->cameras_manager, camera_id );
+    SceneID scene_id = Tropic_getSceneIDFromCameraID(camera_id);
+    Handle local_id = Tropic_getLocalHandleFromCameraID(camera_id);
+    Scene *scene = Tropic_getSceneByID( engine_id, scene_id );
+    if ( !self || !scene || local_id == 0 ) return false;
+    TropicCamera *c = ( TropicCamera* )idmgr_get( scene->cameras_manager, local_id );
     if ( !c ) return false;
     scene->active_camera = camera_id;
     return true;
@@ -53,9 +55,11 @@ bool Tropic_setCamera( TropicID engine_id, CameraID camera_id )
 TropicCamera* Tropic_getCamera( TropicID engine_id, CameraID id )
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScenePtr( self );
-    if ( !self || !scene ) return NULL;
-    return ( TropicCamera* )idmgr_get( scene->cameras_manager, id );
+    SceneID scene_id = Tropic_getSceneIDFromCameraID(id);
+    Handle local_id = Tropic_getLocalHandleFromCameraID(id);
+    Scene *scene = Tropic_getSceneByID( engine_id, scene_id );
+    if ( !self || !scene || local_id == 0 ) return NULL;
+    return ( TropicCamera* )idmgr_get( scene->cameras_manager, local_id );
 }
 
 TropicCamera* Tropic_getActiveCamera( TropicID engine_id )
@@ -63,7 +67,9 @@ TropicCamera* Tropic_getActiveCamera( TropicID engine_id )
     Tropic *self = Tropic_getById( engine_id );
     Scene *scene = Tropic_getCurrentScenePtr( self );
     if ( !self || !scene ) return NULL;
-    return ( TropicCamera* )idmgr_get( scene->cameras_manager, scene->active_camera );
+    Handle local_id = Tropic_getLocalHandleFromCameraID(scene->active_camera);
+    if (local_id == 0) return NULL;
+    return ( TropicCamera* )idmgr_get( scene->cameras_manager, local_id );
 }
 
 CameraID Tropic_getActiveCameraId( TropicID engine_id )
@@ -87,6 +93,12 @@ bool Tropic_lookAtObjectById( TropicID engine, ObjectID object_id )
     if (!camera) return false;
 
     return Tropic_setCameraTarget(engine, camera->id, object->pos);
+}
+
+SceneID Tropic_getCameraScene( TropicID engine_id, CameraID camera_id )
+{
+    (void)engine_id;
+    return Tropic_getSceneIDFromCameraID(camera_id);
 }
 
 bool Tropic_setCameraFOV( TropicID engine_id, CameraID camera_id, float fov )

@@ -4,8 +4,11 @@
 #include <cglm/cglm.h>
 #include "handles.h"
 
+typedef struct sScene Scene;
+
 typedef struct sTropicCamera
 {
+    Scene* _scene_ptr;
     CameraID id;
     bool active;
     vec3 position;
@@ -28,6 +31,9 @@ TropicCamera* Tropic_getCamera( TropicID engine_id, CameraID camera_id );
 TropicCamera* Tropic_getActiveCamera( TropicID engine_id );
 CameraID Tropic_getActiveCameraId( TropicID engine_id );
 bool Tropic_lookAtObjectById( TropicID engine, ObjectID object_id );
+
+SceneID Tropic_getCameraScene( TropicID engine_id, CameraID camera_id );
+
 /* helper functions for camera manipulation */
 bool Tropic_setCameraFOV( TropicID engine_id, CameraID camera_id, float fov );
 float Tropic_getCameraFOV( TropicID engine_id, CameraID camera_id );

@@ -118,6 +118,7 @@ SceneID Tropic_createScene( TropicID engine_id, const char* name )
     }
 
     scene->id = ( SceneID )h;
+    scene->_engine_ptr = self;
     vector_push_back( self->scenes, scene->id );
     return scene->id;
 }
