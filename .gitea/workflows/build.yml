@@ -16,7 +16,7 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y cmake build-essential libglfw3-dev libgl1-mesa-dev
+        sudo apt-get install -y cmake build-essential libglfw3-dev libgl1-mesa-dev libglm-dev libcjson-dev
     
     - name: Build
       run: |
