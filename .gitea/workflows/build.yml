@@ -17,6 +17,16 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y cmake build-essential libglfw3-dev libgl1-mesa-dev libglm-dev libcjson-dev
+
+    - name: Build and Install CVector
+      run: |
+        git clone http://192.168.1.122:3001/ProgrammingCube/c_vector.git
+        cd c_vector
+        mkdir build && cd build
+        cmake ..
+        make
+        sudo make install
+        cd ../..
     
     - name: Build
       run: |
