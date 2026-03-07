@@ -1,5 +1,7 @@
 # 🌴 Tropic Game Engine 🏝️
 
+[![Build Status](https://your-gitea-domain.com/your-username/tropic_engine/actions/workflows/build.yml/badge.svg)](https://your-gitea-domain.com/your-username/tropic_engine/actions)
+
 Imagine, if you would, a tropical paradise. Just you, a laptop, and the warm waves lapping at your feet. Nothing else in the world matters. It is you and your code, and the simple environment you are in.
 
 Tropic is like this, a simple environment yet you want for nothing. It takes care of the deep backend while you are free to do whatever you want - you ARE on vacation, after all!
