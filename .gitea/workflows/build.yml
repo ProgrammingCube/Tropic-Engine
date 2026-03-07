@@ -1,0 +1,30 @@
+name: CMake Build
+
+on:
+  push:
+    branches: [ master, main ]
+  schedule:
+    - cron: '0 2 * * *'  # Nightly at 2 AM
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake build-essential libglfw3-dev libgl1-mesa-dev
+    
+    - name: Build
+      run: |
+        mkdir build && cd build
+        cmake ..
+        make
+    
+    - name: Run Tests
+      run: |
+        cd build/tests
+        ./tropic_test
