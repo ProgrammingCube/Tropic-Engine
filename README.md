@@ -1,6 +1,8 @@
 # 🌴 Tropic Game Engine 🏝️
 
-[Build Status](http://192.168.1.122:3001/ProgrammingCube/tropic_engine/actions)
+[![Build Status](https://img.shields.io/badge/dynamic/json?url=http://192.168.1.122:3001/api/repos/ProgrammingCube/tropic_engine/actions/workflows%2Fbuild.yml/runs?status=success&query=$.status&label=build&colorB=brightgreen)](http://192.168.1.122:3001/ProgrammingCube/tropic_engine/actions)
+
+
 Imagine, if you would, a tropical paradise. Just you, a laptop, and the warm waves lapping at your feet. Nothing else in the world matters. It is you and your code, and the simple environment you are in.
 
 Tropic is like this, a simple environment yet you want for nothing. It takes care of the deep backend while you are free to do whatever you want - you ARE on vacation, after all!
