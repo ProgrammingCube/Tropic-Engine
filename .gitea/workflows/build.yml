@@ -36,5 +36,5 @@ jobs:
     
     - name: Run Tests
       run: |
-        cd build/tests 637036
+        cd build/tests
         timeout 10 xvfb-run -a ./tropic_test || true
