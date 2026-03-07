@@ -1,6 +1,6 @@
 # 🌴 Tropic Game Engine 🏝️
 
-[![Build Status](https://your-gitea-domain.com/your-username/tropic_engine/actions/workflows/build.yml/badge.svg)](https://your-gitea-domain.com/your-username/tropic_engine/actions)
+[![Build Status](http://192.168.1.122:3001/ProgrammingCube/tropic_engine/actions/workflows/build.yml/badge.svg)](https://your-gitea-domain.com/your-username/tropic_engine/actions)
 
 Imagine, if you would, a tropical paradise. Just you, a laptop, and the warm waves lapping at your feet. Nothing else in the world matters. It is you and your code, and the simple environment you are in.
 
