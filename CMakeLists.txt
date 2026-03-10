@@ -1,23 +1,34 @@
 cmake_minimum_required(VERSION 3.14)
 project(tropic_engine LANGUAGES C)
 
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT tropic_test)
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 # Dependencies
 find_package(cJSON REQUIRED)
-find_package(CVector REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(glfw3 REQUIRED)
 
 include(FetchContent)
+
 FetchContent_Declare(
 	cglm
 	GIT_REPOSITORY https://github.com/recp/cglm.git
 	GIT_TAG v0.9.0
 )
 FetchContent_MakeAvailable(cglm)
+
+# Build CVector as a static library to avoid DLL issues on Windows
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build dependencies as static libraries" FORCE)
+
+FetchContent_Declare(
+	CVector
+	GIT_REPOSITORY http://192.168.1.122:3001/ProgrammingCube/c_vector.git
+)
+FetchContent_MakeAvailable(CVector)
 
 # =========================================================================
 # BUILD THE TROPIC ENGINE LIBRARY
@@ -33,12 +44,18 @@ add_library(tropic STATIC ${ENGINE_SOURCES})
 
 target_include_directories(tropic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 
-target_compile_options(tropic PRIVATE -g -Wall -Wextra -D_GNU_SOURCE)
-#set_source_files_properties( ${CMAKE_CURRENT_SOURCE_DIR}/src/glad.c PROPERTIES COMPILE_OPTIONS "$<TARGET_PROPERTY:COMPILE_OPTIONS> -Wno-pedantic")
+# Use compiler-specific flags
+if(MSVC)
+	target_compile_options(tropic PRIVATE /W4)
+	target_compile_definitions(tropic PRIVATE _CRT_SECURE_NO_WARNINGS)
+else()
+	target_compile_options(tropic PRIVATE -Wall -Wextra -g)
+	target_compile_definitions(tropic PRIVATE _GNU_SOURCE)
+endif()
 
 target_link_libraries(tropic PUBLIC
-	${CJSON_LIBRARIES}
-	CVector::vector
+	cjson
+	vector
 	glfw
 	OpenGL::GL
 	cglm

@@ -435,6 +435,7 @@ TropicID Tropic_getActiveEngineId( void )
     return _TROPIC_ACTIVE_ENGINE;
 }
 
+/*
 __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
                                                      const char* file,
                                                      int* out_num_objects
@@ -443,6 +444,26 @@ __attribute__((weak)) void* Tropic_parseLevel( TropicID engine,
     (void)engine; (void)file; (void)out_num_objects;
     return NULL;
 }
+*/
+
+void* Tropic_defaultParseLevel(TropicID engine, const char* file, int* out_num_objects)
+{
+    (void)engine;
+    (void)file;
+    (void)out_num_objects;
+    return NULL;
+}
+
+#if defined(_MSC_VER)
+#if defined(_M_IX86)
+#pragma comment(linker, "/alternatename:_Tropic_parseLevel=_Tropic_defaultParseLevel")
+#else
+#pragma comment(linker, "/alternatename:Tropic_parseLevel=Tropic_defaultParseLevel")
+#endif
+#elif defined(__GNUC__) || defined(__clang__)
+void* Tropic_parseLevel(TropicID engine, const char* file, int* out_num_objects)
+__attribute__((weak, alias("Tropic_defaultParseLevel")));
+#endif
 
 /* Mesh pool functions */
 MeshID Tropic_newMesh(TropicID engine_id, const Mesh* proto)

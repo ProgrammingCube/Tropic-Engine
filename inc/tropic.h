@@ -5,7 +5,6 @@
 #include <cjson/cJSON.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
-#include <GL/freeglut.h>
 #include "tropic_gamestate.h"
 #include "camera.h"
 #include "object.h"
@@ -79,8 +78,8 @@ ShaderID Tropic_newShader(TropicID engine_id, const Shader* proto);
 Shader*  Tropic_getShader(TropicID engine_id, ShaderID id);
 bool     Tropic_freeShader(TropicID engine_id, ShaderID id);
 
-void Tropic_update(Tropic* self, float delta_time);
-void Tropic_render(Tropic* self);
+//void Tropic_update(Tropic* self, float delta_time);
+//void Tropic_render(Tropic* self);
 
 void Tropic_cleanup(Tropic* self);
 

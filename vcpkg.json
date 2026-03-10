@@ -1,0 +1,6 @@
+{
+  "dependencies": [
+    "cjson",
+    "glfw3"
+  ]
+}
