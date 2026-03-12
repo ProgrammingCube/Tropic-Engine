@@ -3,11 +3,45 @@
   "configurePresets": [
     {
       "name": "default",
+      "displayName": "Visual Studio 2026",
       "generator": "Visual Studio 18 2026",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "D:/Projects/vcpkg/scripts/buildsystems/vcpkg.cmake"
       }
+    },
+    {
+      "name": "windows-ninja-msvc",
+      "displayName": "Windows - Ninja + MSVC",
+      "description": "Run from a VS 2026 Developer Command Prompt (or let VS Code CMake Tools pick the kit).",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/ninja-msvc",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "windows-mingw",
+      "displayName": "Windows - Ninja + MinGW (MSYS2/GCC)",
+      "description": "Requires MinGW-w64 (e.g. via MSYS2 mingw64 shell) in PATH. Set VCPKG_ROOT and install x64-mingw-static triplet packages first.",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/mingw",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "VCPKG_TARGET_TRIPLET": "x64-mingw-static"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-ninja-msvc",
+      "configurePreset": "windows-ninja-msvc"
+    },
+    {
+      "name": "windows-mingw",
+      "configurePreset": "windows-mingw"
     }
   ]
 }

@@ -175,3 +175,109 @@ float Tropic_getCameraRoll( TropicID engine_id, CameraID camera_id )
     if ( !c ) return 0.0f;
     return c->roll;
 }
+
+bool Tropic_followObjectById(TropicID engine_id,
+    CameraID camera_id,
+    ObjectID object_id,
+    vec3 camera_offset,
+    vec3 target_offset)
+{
+    TropicCamera* camera = Tropic_getCamera(engine_id, camera_id);
+    Object* object = Tropic_getObject(engine_id, object_id);
+    vec3 focus_point;
+    vec3 camera_position;
+
+    if (!camera || !object || !camera->active || !object->active)
+        return false;
+
+    glm_vec3_copy(object->pos, focus_point);
+    glm_vec3_add(focus_point, target_offset, focus_point);
+
+    glm_vec3_copy(object->pos, camera_position);
+    glm_vec3_add(camera_position, camera_offset, camera_position);
+
+    glm_vec3_copy(camera_position, camera->position);
+    glm_vec3_copy(focus_point, camera->target);
+
+    return true;
+}
+
+bool Tropic_bindCameraToObject( TropicID engine_id,
+                                CameraID camera_id,
+                                ObjectID object_id,
+                                const TropicFollowConfig* config )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+
+    c->follow_object_id = object_id;
+
+    if ( object_id == 0 )
+    {
+        memset( &c->follow_cfg, 0, sizeof( TropicFollowConfig ) );
+        return true;
+    }
+
+    if ( config )
+    {
+        glm_vec3_copy( config->camera_offset, c->follow_cfg.camera_offset );
+        glm_vec3_copy( config->target_offset, c->follow_cfg.target_offset );
+        c->follow_cfg.space = config->space;
+    }
+    else
+    {
+        memset( &c->follow_cfg, 0, sizeof( TropicFollowConfig ) );
+    }
+
+    return true;
+}
+
+bool Tropic_unbindCamera( TropicID engine_id, CameraID camera_id )
+{
+    TropicCamera *c = Tropic_getCamera( engine_id, camera_id );
+    if ( !c ) return false;
+    c->follow_object_id = 0;
+    memset( &c->follow_cfg, 0, sizeof( TropicFollowConfig ) );
+    return true;
+}
+
+bool Tropic_updateCameraFollow( TropicID engine_id, CameraID camera_id )
+{
+    TropicCamera *camera = Tropic_getCamera( engine_id, camera_id );
+    if ( !camera || !camera->active || camera->follow_object_id == 0 )
+        return false;
+
+    Object *object = Tropic_getObject( engine_id, camera->follow_object_id );
+    if ( !object || !object->active )
+        return false;
+
+    vec3 cam_offset;
+    vec3 tgt_offset;
+    glm_vec3_copy( camera->follow_cfg.camera_offset, cam_offset );
+    glm_vec3_copy( camera->follow_cfg.target_offset, tgt_offset );
+
+    if ( camera->follow_cfg.space == FOLLOW_LOCAL_SPACE )
+    {
+        /* Build rotation matrix from the object's XYZ Euler angles (degrees),
+         * matching the same rotation order used in Tropic_Render. */
+        mat4 rot;
+        glm_mat4_identity( rot );
+        glm_rotate( rot, glm_rad( object->rot[0] ), (vec3){ 1.0f, 0.0f, 0.0f } );
+        glm_rotate( rot, glm_rad( object->rot[1] ), (vec3){ 0.0f, 1.0f, 0.0f } );
+        glm_rotate( rot, glm_rad( object->rot[2] ), (vec3){ 0.0f, 0.0f, 1.0f } );
+
+        vec4 cam_off4 = { cam_offset[0], cam_offset[1], cam_offset[2], 0.0f };
+        vec4 tgt_off4 = { tgt_offset[0], tgt_offset[1], tgt_offset[2], 0.0f };
+        vec4 cam_off4_rot, tgt_off4_rot;
+        glm_mat4_mulv( rot, cam_off4, cam_off4_rot );
+        glm_mat4_mulv( rot, tgt_off4, tgt_off4_rot );
+
+        glm_vec3( cam_off4_rot, cam_offset );
+        glm_vec3( tgt_off4_rot, tgt_offset );
+    }
+
+    glm_vec3_add( object->pos, cam_offset, camera->position );
+    glm_vec3_add( object->pos, tgt_offset, camera->target );
+
+    return true;
+}

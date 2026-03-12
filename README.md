@@ -43,12 +43,16 @@ Tropic currently builds as a C11 static library with a test executable via CMake
 ### Tooling
 
 - CMake 3.14+
-- A C compiler with C11 support (`gcc`/`clang`)
+- A C compiler with C11 support (`gcc`/`clang`/`cl`)
+- [vcpkg](https://github.com/microsoft/vcpkg) — set `VCPKG_ROOT` in your environment and run `vcpkg install` (reads `vcpkg.json` automatically)
+- **Windows (non-VS IDE):** [Ninja](https://ninja-build.org/) build tool, installed and in `PATH`
 
 ---
 
 <a id="build-and-run"></a>
 ## 🚀 Build & Run
+
+### Linux / Ubuntu
 
 ```bash
 cmake -S . -B build
@@ -57,6 +61,41 @@ cmake --build build
 ```
 
 > If your distro uses different package names for dependencies, install equivalents for `cjson`, `glfw3`, and OpenGL dev headers.
+
+### Windows — Visual Studio 2026 (IDE)
+
+Open the folder in Visual Studio 2026. It picks up `CMakePresets.json` automatically and uses the `default` preset.
+
+### Windows — Ninja + MSVC (VS Code / Neovim / terminal)
+
+Requires the VS 2026 Build Tools and Ninja. Run from a **VS 2026 Developer Command Prompt**, or let VS Code CMake Tools select the MSVC kit automatically.
+
+```powershell
+# Set once in your environment (or user profile):
+$env:VCPKG_ROOT = "D:\Projects\vcpkg"   # adjust to your vcpkg location
+
+cmake --preset windows-ninja-msvc
+cmake --build --preset windows-ninja-msvc
+.\out\ninja-msvc\tests\tropic_test.exe
+```
+
+### Windows — Ninja + MinGW/GCC (MSYS2)
+
+Requires [MSYS2](https://www.msys2.org/) with the `mingw-w64-x86_64-toolchain` and Ninja packages installed. Run from the **MSYS2 MinGW64 shell** (or ensure `mingw64/bin` is on your `PATH`).
+
+You also need the `x64-mingw-static` vcpkg triplet packages built:
+```bash
+vcpkg install --triplet x64-mingw-static
+```
+
+Then build:
+```powershell
+$env:VCPKG_ROOT = "D:\Projects\vcpkg"   # adjust to your vcpkg location
+
+cmake --preset windows-mingw
+cmake --build --preset windows-mingw
+.\out\mingw\tests\tropic_test.exe
+```
 
 ---
 

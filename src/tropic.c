@@ -300,6 +300,9 @@ void Tropic_Render( TropicID engine_id )
     glfwGetFramebufferSize(self->window, &width, &height);
     if (height == 0) height = 1;
 
+    /* Auto-update follow binding before computing the view matrix. */
+    Tropic_updateCameraFollow(engine_id, camera->id);
+
     mat4 view;
     mat4 projection;
     glm_lookat(camera->position, camera->target, camera->up, view);
