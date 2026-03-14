@@ -15,12 +15,12 @@ typedef void (*TropicMaterialRenderCallback)(TropicID engine_id,
                                              Scene *scene,
                                              Object *object,
                                              TropicMaterial *material,
-                                             Shader *shader,
+                                             ShaderID shader_id,
                                              const TropicCamera *camera);
 
 struct sTropicMaterial
 {
-    uint32_t id;
+    MaterialID id;
     MeshID mesh_id;
     ShaderID shader_id;
     TropicMaterialRenderCallback render_callback;
@@ -28,6 +28,11 @@ struct sTropicMaterial
 };
 
 MaterialID Tropic_newMaterial(TropicID engine_id, const TropicMaterial* proto);
+MaterialID Tropic_createMaterial(TropicID engine_id,
+                                 MeshID mesh_id,
+                                 ShaderID shader_id,
+                                 TropicMaterialRenderCallback render_callback,
+                                 void *user);
 TropicMaterial* Tropic_getMaterial(TropicID engine_id, MaterialID id);
 bool Tropic_freeMaterial(TropicID engine_id, MaterialID id);
 

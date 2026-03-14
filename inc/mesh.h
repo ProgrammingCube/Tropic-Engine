@@ -1,11 +1,11 @@
 #ifndef MESH_H
 #define MESH_H
 
-#include <stdint.h>
+#include "handles.h"
 #include <glad/glad.h>
 
 typedef struct sMesh {
-    uint32_t id;
+    MeshID id;
     /* add vbo, ebo, vao, etc. for rendering */
     GLuint vbo;
     GLuint ebo;
@@ -15,5 +15,7 @@ typedef struct sMesh {
     GLsizeiptr vao_size;
     void *user; /* user pointer for later extension */
 } Mesh;
+
+MeshID Tropic_createCubeMesh(TropicID engine_id);
 
 #endif /* MESH_H */

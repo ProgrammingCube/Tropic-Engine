@@ -250,7 +250,7 @@ void Tropic_Render( TropicID engine_id )
         if (object_scale_loc >= 0) glUniform3fv(object_scale_loc, 1, object->scale);
 
         if (material->render_callback) {
-            material->render_callback(engine_id, scene, object, material, shader, camera);
+            material->render_callback(engine_id, scene, object, material, material->shader_id, camera);
         }
 
         glBindVertexArray(mesh->vao);
@@ -366,6 +366,7 @@ MeshID Tropic_newMesh(TropicID engine_id, const Mesh* proto)
 {
     Tropic *self = Tropic_getById( engine_id );
     Scene *scene = Tropic_getCurrentScenePtr( self );
+    MeshID mesh_id;
     if (!self || !scene) return 0;
     Mesh *m = (Mesh*)malloc(sizeof(Mesh));
     if (!m) return 0;
@@ -373,29 +374,32 @@ MeshID Tropic_newMesh(TropicID engine_id, const Mesh* proto)
     else memset(m, 0, sizeof(Mesh));
     Handle h = idmgr_alloc(scene->meshes_manager, m);
     if (h == 0) { free(m); return 0; }
-    m->id = (uint32_t)h;
-    return (MeshID)h;
+    mesh_id = Tropic_makeMeshID(scene->id, h);
+    m->id = mesh_id;
+    return mesh_id;
 }
 
 Mesh* Tropic_getMesh(TropicID engine_id, MeshID id)
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScenePtr( self );
-    if (!self || !scene) return NULL;
-    return (Mesh*)idmgr_get(scene->meshes_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromMeshID(id));
+    Handle local_id = Tropic_getLocalHandleFromMeshID(id);
+    if (!self || !scene || local_id == 0) return NULL;
+    return (Mesh*)idmgr_get(scene->meshes_manager, local_id);
 }
 
 bool Tropic_freeMesh(TropicID engine_id, MeshID id)
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScenePtr( self );
-    if (!self || !scene) return false;
-    Mesh *m = (Mesh*)idmgr_get(scene->meshes_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromMeshID(id));
+    Handle local_id = Tropic_getLocalHandleFromMeshID(id);
+    if (!self || !scene || local_id == 0) return false;
+    Mesh *m = (Mesh*)idmgr_get(scene->meshes_manager, local_id);
     if (!m) return false;
     if (m->vbo != 0) glDeleteBuffers(1, &m->vbo);
     if (m->ebo != 0) glDeleteBuffers(1, &m->ebo);
     if (m->vao != 0) glDeleteVertexArrays(1, &m->vao);
-    bool ok = idmgr_free(scene->meshes_manager, id);
+    bool ok = idmgr_free(scene->meshes_manager, local_id);
     if (ok) free(m);
     return ok;
 }
@@ -405,6 +409,7 @@ TextureID Tropic_newTexture(TropicID engine_id, const Texture* proto)
 {
     Tropic *self = Tropic_getById( engine_id );
     Scene *scene = Tropic_getCurrentScenePtr( self );
+    TextureID texture_id;
     if (!self || !scene) return 0;
     Texture *t = (Texture*)malloc(sizeof(Texture));
     if (!t) return 0;
@@ -412,26 +417,29 @@ TextureID Tropic_newTexture(TropicID engine_id, const Texture* proto)
     else memset(t, 0, sizeof(Texture));
     Handle h = idmgr_alloc(scene->textures_manager, t);
     if (h == 0) { free(t); return 0; }
-    t->id = (uint32_t)h;
-    return (TextureID)h;
+    texture_id = Tropic_makeTextureID(scene->id, h);
+    t->id = texture_id;
+    return texture_id;
 }
 
 Texture* Tropic_getTexture(TropicID engine_id, TextureID id)
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScenePtr( self );
-    if (!self || !scene) return NULL;
-    return (Texture*)idmgr_get(scene->textures_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromTextureID(id));
+    Handle local_id = Tropic_getLocalHandleFromTextureID(id);
+    if (!self || !scene || local_id == 0) return NULL;
+    return (Texture*)idmgr_get(scene->textures_manager, local_id);
 }
 
 bool Tropic_freeTexture(TropicID engine_id, TextureID id)
 {
     Tropic *self = Tropic_getById( engine_id );
-    Scene *scene = Tropic_getCurrentScenePtr( self );
-    if (!self || !scene) return false;
-    Texture *t = (Texture*)idmgr_get(scene->textures_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromTextureID(id));
+    Handle local_id = Tropic_getLocalHandleFromTextureID(id);
+    if (!self || !scene || local_id == 0) return false;
+    Texture *t = (Texture*)idmgr_get(scene->textures_manager, local_id);
     if (!t) return false;
-    bool ok = idmgr_free(scene->textures_manager, id);
+    bool ok = idmgr_free(scene->textures_manager, local_id);
     if (ok) free(t);
     return ok;
 }
@@ -440,6 +448,7 @@ ShaderID Tropic_newShader(TropicID engine_id, const Shader* proto)
 {
     Tropic *self = Tropic_getById(engine_id);
     Scene *scene = Tropic_getCurrentScenePtr(self);
+    ShaderID shader_id;
     if (!self || !scene) return 0;
 
     Shader *shader = (Shader*)malloc(sizeof(Shader));
@@ -453,29 +462,32 @@ ShaderID Tropic_newShader(TropicID engine_id, const Shader* proto)
         return 0;
     }
 
-    shader->id = (uint32_t)h;
-    return (ShaderID)h;
+    shader_id = Tropic_makeShaderID(scene->id, h);
+    shader->id = shader_id;
+    return shader_id;
 }
 
 Shader* Tropic_getShader(TropicID engine_id, ShaderID id)
 {
     Tropic *self = Tropic_getById(engine_id);
-    Scene *scene = Tropic_getCurrentScenePtr(self);
-    if (!self || !scene) return NULL;
-    return (Shader*)idmgr_get(scene->shaders_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromShaderID(id));
+    Handle local_id = Tropic_getLocalHandleFromShaderID(id);
+    if (!self || !scene || local_id == 0) return NULL;
+    return (Shader*)idmgr_get(scene->shaders_manager, local_id);
 }
 
 bool Tropic_freeShader(TropicID engine_id, ShaderID id)
 {
     Tropic *self = Tropic_getById(engine_id);
-    Scene *scene = Tropic_getCurrentScenePtr(self);
-    if (!self || !scene) return false;
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromShaderID(id));
+    Handle local_id = Tropic_getLocalHandleFromShaderID(id);
+    if (!self || !scene || local_id == 0) return false;
 
-    Shader *shader = (Shader*)idmgr_get(scene->shaders_manager, id);
+    Shader *shader = (Shader*)idmgr_get(scene->shaders_manager, local_id);
     if (!shader) return false;
 
     shader_destroy(shader);
-    bool ok = idmgr_free(scene->shaders_manager, id);
+    bool ok = idmgr_free(scene->shaders_manager, local_id);
     if (ok) free(shader);
     return ok;
 }

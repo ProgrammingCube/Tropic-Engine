@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
         goto cleanup;
 	}
 
-    render_resources.cube_mesh = _create_test_cube_mesh(tropicEngine);
+    render_resources.cube_mesh = Tropic_createCubeMesh(tropicEngine);
     if (render_resources.cube_mesh == 0)
     {
         fprintf(stderr, "Failed to create test cube mesh.\n");

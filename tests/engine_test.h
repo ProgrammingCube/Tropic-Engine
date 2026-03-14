@@ -6,7 +6,6 @@
 #include <string.h>
 #include "tropic.h"
 #include "level_loader.h"
-#include "primitives.h"
 
 typedef struct sEngineTestConfig
 {
@@ -54,62 +53,6 @@ static EngineTestMaterialUniforms _platform_material_uniforms = {
     1.0f,
 };
 
-static bool _engine_test_file_exists(const char *path)
-{
-    FILE *file;
-
-    if (!path) return false;
-
-    file = fopen(path, "rb");
-    if (!file) return false;
-
-    fclose(file);
-    return true;
-}
-
-static MeshID _create_test_cube_mesh(TropicID engine_id)
-{
-    Mesh mesh = { 0 };
-    MeshID mesh_id;
-
-    glGenVertexArrays(1, &mesh.vao);
-    glGenBuffers(1, &mesh.vbo);
-    glGenBuffers(1, &mesh.ebo);
-
-    if (mesh.vao == 0 || mesh.vbo == 0 || mesh.ebo == 0)
-    {
-        if (mesh.vbo != 0) glDeleteBuffers(1, &mesh.vbo);
-        if (mesh.ebo != 0) glDeleteBuffers(1, &mesh.ebo);
-        if (mesh.vao != 0) glDeleteVertexArrays(1, &mesh.vao);
-        return 0;
-    }
-
-    glBindVertexArray(mesh.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cube_verticies), cube_verticies, GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_indices), cube_indices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, CUBE_VERTEX_STRIDE, (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, CUBE_VERTEX_STRIDE, (void*)(3 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
-
-    mesh.vbo_size = sizeof(cube_verticies);
-    mesh.ebo_size = sizeof(cube_indices);
-    mesh.vao_size = 1;
-
-    mesh_id = Tropic_newMesh(engine_id, &mesh);
-    if (mesh_id == 0)
-    {
-        glDeleteBuffers(1, &mesh.vbo);
-        glDeleteBuffers(1, &mesh.ebo);
-        glDeleteVertexArrays(1, &mesh.vao);
-    }
-
-    return mesh_id;
-}
-
 static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
 {
     static const char *vertex_candidates[] = {
@@ -134,60 +77,32 @@ static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
         "../../assets/shaders/platform_neon.frag",
         "../../assets/shaders/platform_normals.frag",
     };
-    Shader shader = { 0 };
-    ShaderID shader_id = 0;
 
     if (!out_shader) return false;
 
-    *out_shader = 0;
-
-    for (size_t i = 0; i < sizeof(vertex_candidates) / sizeof(vertex_candidates[0]); ++i)
-    {
-        if (!_engine_test_file_exists(vertex_candidates[i]) || !_engine_test_file_exists(fragment_candidates[i]))
-        {
-            continue;
-        }
-
-        if (!shader_load_from_files(&shader, vertex_candidates[i], fragment_candidates[i]))
-        {
-            continue;
-        }
-
-        shader_id = Tropic_newShader(engine_id, &shader);
-        if (shader_id == 0)
-        {
-            shader_destroy(&shader);
-            continue;
-        }
-
-        *out_shader = shader_id;
-        return true;
-    }
-
-    return false;
+    return Tropic_createShaderFromFileCandidates(engine_id,
+                                                 vertex_candidates,
+                                                 fragment_candidates,
+                                                 sizeof(vertex_candidates) / sizeof(vertex_candidates[0]),
+                                                 out_shader);
 }
 
 static void _test_object_render_callback(TropicID engine_id,
     Scene *scene,
     Object *object,
     TropicMaterial *material,
-    Shader *shader,
+    ShaderID shader_id,
     const TropicCamera *camera)
 {
     vec3 light_pos = { 20.0f, 35.0f, 20.0f };
     vec3 object_color = { 0.65f, 0.65f, 0.65f };
     vec3 ambient_color = { 0.2f, 0.2f, 0.2f };
     float neon_amount = 0.0f;
-    GLint light_pos_loc;
-    GLint object_color_loc;
-    GLint ambient_color_loc;
-    GLint neon_amount_loc;
     EngineTestMaterialUniforms *material_uniforms;
 
-    (void)engine_id;
     (void)camera;
 
-    if (!object || !material || !shader) return;
+    if (!object || !material || shader_id == 0) return;
 
     material_uniforms = material->user;
     if (!material_uniforms) return;
@@ -200,15 +115,10 @@ static void _test_object_render_callback(TropicID engine_id,
     glm_vec3_copy(material_uniforms->color, object_color);
     neon_amount = material_uniforms->neon_amount;
 
-    light_pos_loc = shader_get_uniform_location(shader, "lightPos");
-    object_color_loc = shader_get_uniform_location(shader, "objectColor");
-    ambient_color_loc = shader_get_uniform_location(shader, "ambientColor");
-    neon_amount_loc = shader_get_uniform_location(shader, "neonAmount");
-
-    if (light_pos_loc >= 0) glUniform3fv(light_pos_loc, 1, light_pos);
-    if (object_color_loc >= 0) glUniform3fv(object_color_loc, 1, object_color);
-    if (ambient_color_loc >= 0) glUniform3fv(ambient_color_loc, 1, ambient_color);
-    if (neon_amount_loc >= 0) glUniform1f(neon_amount_loc, neon_amount);
+    (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "lightPos", light_pos);
+    (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "objectColor", object_color);
+    (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "ambientColor", ambient_color);
+    (void)Tropic_setShaderUniformFloat(engine_id, shader_id, "neonAmount", neon_amount);
 }
 
 static bool _configure_test_object_rendering(TropicID engine_id,
@@ -260,20 +170,20 @@ static bool _configure_test_scene_rendering(TropicID engine_id,
 
 static bool _init_test_materials(TropicID engine_id, EngineTestRenderResources *resources)
 {
-    TropicMaterial material = { 0 };
-
     if (!resources) return false;
 
-    material.mesh_id = resources->cube_mesh;
-    material.shader_id = resources->volume_shader;
-    material.render_callback = _test_object_render_callback;
-
-    material.user = &_cube_material_uniforms;
-    resources->cube_material = Tropic_newMaterial(engine_id, &material);
+    resources->cube_material = Tropic_createMaterial(engine_id,
+                                                     resources->cube_mesh,
+                                                     resources->volume_shader,
+                                                     _test_object_render_callback,
+                                                     &_cube_material_uniforms);
     if (resources->cube_material == 0) return false;
 
-    material.user = &_platform_material_uniforms;
-    resources->platform_material = Tropic_newMaterial(engine_id, &material);
+    resources->platform_material = Tropic_createMaterial(engine_id,
+                                                         resources->cube_mesh,
+                                                         resources->volume_shader,
+                                                         _test_object_render_callback,
+                                                         &_platform_material_uniforms);
     if (resources->platform_material == 0) return false;
 
     return true;

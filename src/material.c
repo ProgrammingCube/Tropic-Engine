@@ -8,6 +8,7 @@ MaterialID Tropic_newMaterial(TropicID engine_id, const TropicMaterial* proto)
     Tropic *self = Tropic_getById(engine_id);
     Scene *scene = Tropic_getCurrentScenePtr(self);
     TropicMaterial *material;
+    MaterialID material_id;
     Handle h;
 
     if (!self || !scene) return 0;
@@ -23,31 +24,50 @@ MaterialID Tropic_newMaterial(TropicID engine_id, const TropicMaterial* proto)
         return 0;
     }
 
-    material->id = (uint32_t)h;
-    return (MaterialID)h;
+    material_id = Tropic_makeMaterialID(scene->id, h);
+    material->id = material_id;
+    return material_id;
+}
+
+MaterialID Tropic_createMaterial(TropicID engine_id,
+                                 MeshID mesh_id,
+                                 ShaderID shader_id,
+                                 TropicMaterialRenderCallback render_callback,
+                                 void *user)
+{
+    TropicMaterial material = {0};
+
+    material.mesh_id = mesh_id;
+    material.shader_id = shader_id;
+    material.render_callback = render_callback;
+    material.user = user;
+
+    return Tropic_newMaterial(engine_id, &material);
 }
 
 TropicMaterial* Tropic_getMaterial(TropicID engine_id, MaterialID id)
 {
     Tropic *self = Tropic_getById(engine_id);
-    Scene *scene = Tropic_getCurrentScenePtr(self);
-    if (!self || !scene) return NULL;
-    return (TropicMaterial*)idmgr_get(scene->materials_manager, id);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromMaterialID(id));
+    Handle local_id = Tropic_getLocalHandleFromMaterialID(id);
+    if (!self || !scene || local_id == 0) return NULL;
+    return (TropicMaterial*)idmgr_get(scene->materials_manager, local_id);
 }
 
 bool Tropic_freeMaterial(TropicID engine_id, MaterialID id)
 {
     Tropic *self = Tropic_getById(engine_id);
-    Scene *scene = Tropic_getCurrentScenePtr(self);
+    Scene *scene = Tropic_getSceneByID(engine_id, Tropic_getSceneIDFromMaterialID(id));
+    Handle local_id = Tropic_getLocalHandleFromMaterialID(id);
     TropicMaterial *material;
     bool ok;
 
-    if (!self || !scene) return false;
+    if (!self || !scene || local_id == 0) return false;
 
-    material = (TropicMaterial*)idmgr_get(scene->materials_manager, id);
+    material = (TropicMaterial*)idmgr_get(scene->materials_manager, local_id);
     if (!material) return false;
 
-    ok = idmgr_free(scene->materials_manager, id);
+    ok = idmgr_free(scene->materials_manager, local_id);
     if (ok) free(material);
     return ok;
 }
