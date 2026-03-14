@@ -99,24 +99,40 @@ int main(int argc, char* argv[])
         float time_scale = Tropic_getGameState(tropicEngine)->play_speed;
         bool jump_pressed = keyboard[GLFW_KEY_SPACE] != 0;
         bool jump_requested = jump_pressed && !loop_state.jump_was_down;
+        bool pause_pressed = keyboard[GLFW_KEY_P] != 0;
+        bool pause_requested = pause_pressed && !loop_state.pause_was_down;
 
         loop_state.last_time = current_time;
 
+        if (pause_requested)
+        {
+            loop_state.paused = !loop_state.paused;
+            if (loop_state.paused)
+            {
+                loop_state.physics_accumulator = 0.0;
+            }
+        }
+
         _update_play_speed(tropicEngine, delta_time, &loop_state.speed_adjust_timer);
 
-        if (jump_requested)
+        if (!loop_state.paused && jump_requested)
         {
             loop_state.jump_buffer_timer = config.jump_buffer_time;
         }
 
-        loop_state.physics_accumulator += delta_time;
+        if (!loop_state.paused)
+        {
+            loop_state.physics_accumulator += delta_time;
+        }
 
-        if (!_step_player_controller(tropicEngine, player, &config, &loop_state, time_scale))
+        if (!loop_state.paused &&
+            !_step_player_controller(tropicEngine, player, &config, &loop_state, time_scale))
         {
             goto cleanup;
         }
 
         loop_state.jump_was_down = jump_pressed;
+        loop_state.pause_was_down = pause_pressed;
 
         Tropic_Render(tropicEngine);
     }

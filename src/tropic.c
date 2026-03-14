@@ -68,13 +68,25 @@ static bool _Tropic_initPlatformShader(TropicID engine_id, Scene *scene)
     if (!scene || scene->default_platform_shader != 0) return true;
 
     static const char *vertex_candidates[] = {
+        "assets/shaders/platform_volume.vert",
+        "assets/shaders/platform_neon.vert",
         "assets/shaders/platform_normals.vert",
+        "../assets/shaders/platform_volume.vert",
+        "../assets/shaders/platform_neon.vert",
         "../assets/shaders/platform_normals.vert",
+        "../../assets/shaders/platform_volume.vert",
+        "../../assets/shaders/platform_neon.vert",
         "../../assets/shaders/platform_normals.vert",
     };
     static const char *fragment_candidates[] = {
+        "assets/shaders/platform_volume.frag",
+        "assets/shaders/platform_neon.frag",
         "assets/shaders/platform_normals.frag",
+        "../assets/shaders/platform_volume.frag",
+        "../assets/shaders/platform_neon.frag",
         "../assets/shaders/platform_normals.frag",
+        "../../assets/shaders/platform_volume.frag",
+        "../../assets/shaders/platform_neon.frag",
         "../../assets/shaders/platform_normals.frag",
     };
 
@@ -251,6 +263,8 @@ TropicWindowID* Tropic_CreateWindow( TropicID engine_id, int width, int height, 
     printf( "Graphics Card: %s\n", glGetString( GL_RENDERER ) );
 
     glEnable( GL_DEPTH_TEST );
+    glEnable( GL_BLEND );
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 
     return self->window;
 }
@@ -352,26 +366,36 @@ void Tropic_Render( TropicID engine_id )
         shader_use(shader);
 
         mat4 model;
+        mat4 inverse_model;
         glm_mat4_identity(model);
         glm_translate(model, object->pos);
         glm_rotate(model, glm_rad(object->rot[0]), (vec3){1.0f, 0.0f, 0.0f});
         glm_rotate(model, glm_rad(object->rot[1]), (vec3){0.0f, 1.0f, 0.0f});
         glm_rotate(model, glm_rad(object->rot[2]), (vec3){0.0f, 0.0f, 1.0f});
         glm_scale(model, object->scale);
+        glm_mat4_inv(model, inverse_model);
 
         GLint model_loc = shader_get_uniform_location(shader, "model");
+        GLint inverse_model_loc = shader_get_uniform_location(shader, "inverseModel");
         GLint view_loc = shader_get_uniform_location(shader, "view");
         GLint projection_loc = shader_get_uniform_location(shader, "projection");
         GLint light_pos_loc = shader_get_uniform_location(shader, "lightPos");
+        GLint camera_pos_loc = shader_get_uniform_location(shader, "cameraPos");
         GLint object_color_loc = shader_get_uniform_location(shader, "objectColor");
         GLint ambient_color_loc = shader_get_uniform_location(shader, "ambientColor");
+        GLint object_scale_loc = shader_get_uniform_location(shader, "objectScale");
+        GLint neon_amount_loc = shader_get_uniform_location(shader, "neonAmount");
 
         if (model_loc >= 0) glUniformMatrix4fv(model_loc, 1, GL_FALSE, (const float*)model);
+        if (inverse_model_loc >= 0) glUniformMatrix4fv(inverse_model_loc, 1, GL_FALSE, (const float*)inverse_model);
         if (view_loc >= 0) glUniformMatrix4fv(view_loc, 1, GL_FALSE, (const float*)view);
         if (projection_loc >= 0) glUniformMatrix4fv(projection_loc, 1, GL_FALSE, (const float*)projection);
         if (light_pos_loc >= 0) glUniform3fv(light_pos_loc, 1, light_pos);
+        if (camera_pos_loc >= 0) glUniform3fv(camera_pos_loc, 1, camera->position);
         if (object_color_loc >= 0) glUniform3fv(object_color_loc, 1, object_color);
         if (ambient_color_loc >= 0) glUniform3fv(ambient_color_loc, 1, ambient_color);
+        if (object_scale_loc >= 0) glUniform3fv(object_scale_loc, 1, object->scale);
+        if (neon_amount_loc >= 0) glUniform1f(neon_amount_loc, object->type == TYPE_PLATFORM ? 1.0f : 0.0f);
 
         glBindVertexArray(mesh->vao);
         glDrawElements(GL_TRIANGLES, (GLsizei)(mesh->ebo_size / sizeof(GLuint)), GL_UNSIGNED_INT, 0);

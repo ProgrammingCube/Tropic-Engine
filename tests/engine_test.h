@@ -24,7 +24,9 @@ typedef struct sEngineTestLoopState
     double physics_accumulator;
     float jump_buffer_timer;
     float coyote_timer;
+    bool paused;
     bool jump_was_down;
+    bool pause_was_down;
 } EngineTestLoopState;
 
 static char keyboard[256] = { 0 };
