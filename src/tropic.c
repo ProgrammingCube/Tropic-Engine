@@ -1,5 +1,4 @@
 #include "tropic.h"
-#include "primitives.h"
 
 #include <cglm/cglm.h>
 #include <vector.h>
@@ -10,123 +9,6 @@
 TropicID _TROPIC_ACTIVE_ENGINE = 0;
 
 /* Parsing moved to level_parser.{h,c}. Tropic only consumes LevelSpec. */
-
-static bool _Tropic_fileExists(const char *path)
-{
-    if (!path) return false;
-    FILE *file = fopen(path, "rb");
-    if (!file) return false;
-    fclose(file);
-    return true;
-}
-
-static bool _Tropic_initPlatformMesh(TropicID engine_id, Scene *scene)
-{
-    if (!scene || scene->default_platform_mesh != 0) return true;
-
-    Mesh mesh = {0};
-    glGenVertexArrays(1, &mesh.vao);
-    glGenBuffers(1, &mesh.vbo);
-    glGenBuffers(1, &mesh.ebo);
-
-    if (mesh.vao == 0 || mesh.vbo == 0 || mesh.ebo == 0) {
-        if (mesh.vbo != 0) glDeleteBuffers(1, &mesh.vbo);
-        if (mesh.ebo != 0) glDeleteBuffers(1, &mesh.ebo);
-        if (mesh.vao != 0) glDeleteVertexArrays(1, &mesh.vao);
-        return false;
-    }
-
-    glBindVertexArray(mesh.vao);
-    glBindBuffer(GL_ARRAY_BUFFER, mesh.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(cube_verticies), cube_verticies, GL_STATIC_DRAW);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_indices), cube_indices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, CUBE_VERTEX_STRIDE, (void*)0);
-    glEnableVertexAttribArray(0);
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, CUBE_VERTEX_STRIDE, (void*)(3 * sizeof(GLfloat)));
-    glEnableVertexAttribArray(1);
-    glBindVertexArray(0);
-
-    mesh.vbo_size = sizeof(cube_verticies);
-    mesh.ebo_size = sizeof(cube_indices);
-    mesh.vao_size = 1;
-
-    MeshID mesh_id = Tropic_newMesh(engine_id, &mesh);
-    if (mesh_id == 0) {
-        glDeleteBuffers(1, &mesh.vbo);
-        glDeleteBuffers(1, &mesh.ebo);
-        glDeleteVertexArrays(1, &mesh.vao);
-        return false;
-    }
-
-    scene->default_platform_mesh = mesh_id;
-    return true;
-}
-
-static bool _Tropic_initPlatformShader(TropicID engine_id, Scene *scene)
-{
-    if (!scene || scene->default_platform_shader != 0) return true;
-
-    static const char *vertex_candidates[] = {
-        "assets/shaders/platform_volume.vert",
-        "assets/shaders/platform_neon.vert",
-        "assets/shaders/platform_normals.vert",
-        "../assets/shaders/platform_volume.vert",
-        "../assets/shaders/platform_neon.vert",
-        "../assets/shaders/platform_normals.vert",
-        "../../assets/shaders/platform_volume.vert",
-        "../../assets/shaders/platform_neon.vert",
-        "../../assets/shaders/platform_normals.vert",
-    };
-    static const char *fragment_candidates[] = {
-        "assets/shaders/platform_volume.frag",
-        "assets/shaders/platform_neon.frag",
-        "assets/shaders/platform_normals.frag",
-        "../assets/shaders/platform_volume.frag",
-        "../assets/shaders/platform_neon.frag",
-        "../assets/shaders/platform_normals.frag",
-        "../../assets/shaders/platform_volume.frag",
-        "../../assets/shaders/platform_neon.frag",
-        "../../assets/shaders/platform_normals.frag",
-    };
-
-    for (size_t i = 0; i < sizeof(vertex_candidates) / sizeof(vertex_candidates[0]); i++) {
-        if (!_Tropic_fileExists(vertex_candidates[i]) || !_Tropic_fileExists(fragment_candidates[i])) {
-            continue;
-        }
-
-        Shader shader = {0};
-        if (!shader_load_from_files(&shader, vertex_candidates[i], fragment_candidates[i])) {
-            continue;
-        }
-
-        ShaderID shader_id = Tropic_newShader(engine_id, &shader);
-        if (shader_id == 0) {
-            shader_destroy(&shader);
-            continue;
-        }
-
-        scene->default_platform_shader = shader_id;
-        return true;
-    }
-
-    fprintf(stderr, "Failed to load platform shader files\n");
-    return false;
-}
-
-static bool _Tropic_ensureRendererReady(TropicID engine_id, Tropic *self, Scene *scene)
-{
-    if (!self || !scene || !self->window) return false;
-    if (scene->renderer_ready) return true;
-
-    glfwMakeContextCurrent(self->window);
-
-    if (!_Tropic_initPlatformMesh(engine_id, scene)) return false;
-    if (!_Tropic_initPlatformShader(engine_id, scene)) return false;
-
-    scene->renderer_ready = (scene->default_platform_mesh != 0 && scene->default_platform_shader != 0);
-    return scene->renderer_ready;
-}
 
 Scene* Tropic_getCurrentScenePtr( Tropic* self )
 {
@@ -295,10 +177,14 @@ void Tropic_Render( TropicID engine_id )
     Scene *scene = Tropic_getCurrentScenePtr(self);
 
     /* Clear the screen */
-    glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    if (scene) {
+        glClearColor(scene->background_color[0], scene->background_color[1], scene->background_color[2], 1.0f);
+    } else {
+        glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+    }
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-    if (!scene || !_Tropic_ensureRendererReady(engine_id, self, scene)) {
+    if (!scene) {
         glfwSwapBuffers(self->window);
         return;
     }
@@ -322,45 +208,19 @@ void Tropic_Render( TropicID engine_id )
     glm_lookat(camera->position, camera->target, camera->up, view);
     glm_perspective(glm_rad(camera->fov), (float)width / (float)height, 0.1f, 1000.0f, projection);
 
-    vec3 light_pos = {20.0f, 35.0f, 20.0f};
-    vec3 ambient_color = {0.2f, 0.2f, 0.2f};
-
     for (size_t i = 0; i < vector_size(scene->entities); i++) {
         ObjectID object_id = scene->entities[i];
         Object *object = Tropic_getObject(engine_id, object_id);
-        if (!object || !object->active) continue;
+        TropicMaterial *material;
+        Mesh *mesh;
+        Shader *shader;
+        if (!object || !object->active || object->material_id == 0) continue;
 
-        MeshID mesh_id = object->mesh_id;
-        ShaderID shader_id = object->shader_id;
-        vec3 object_color = {0.65f, 0.65f, 0.65f};
+        material = Tropic_getMaterial(engine_id, object->material_id);
+        if (!material || material->mesh_id == 0 || material->shader_id == 0) continue;
 
-        switch (object->type)
-        {
-        case TYPE_CUBE:
-            if (mesh_id == 0) mesh_id = scene->default_platform_mesh;
-            if (shader_id == 0) shader_id = scene->default_platform_shader;
-			// change color for cubes to differentiate from platforms
-			object_color[0] = 0.75f;
-			object_color[1] = 0.35f;
-			object_color[2] = 0.35f;
-            break;
-        case TYPE_PLATFORM:
-            if (mesh_id == 0) mesh_id = scene->default_platform_mesh;
-            if (shader_id == 0) shader_id = scene->default_platform_shader;
-            object_color[0] = 0.35f;
-            object_color[1] = 0.75f;
-            object_color[2] = 0.45f;
-            break;
-        case TYPE_GENERIC:
-            if (mesh_id == 0 || shader_id == 0) continue;
-            break;
-        default:
-            continue;
-            break;
-        };
-
-        Mesh *mesh = Tropic_getMesh(engine_id, mesh_id);
-        Shader *shader = Tropic_getShader(engine_id, shader_id);
+        mesh = Tropic_getMesh(engine_id, material->mesh_id);
+        shader = Tropic_getShader(engine_id, material->shader_id);
         if (!mesh || !shader || mesh->vao == 0 || mesh->ebo_size == 0 || shader->program == 0) continue;
 
         shader_use(shader);
@@ -379,23 +239,19 @@ void Tropic_Render( TropicID engine_id )
         GLint inverse_model_loc = shader_get_uniform_location(shader, "inverseModel");
         GLint view_loc = shader_get_uniform_location(shader, "view");
         GLint projection_loc = shader_get_uniform_location(shader, "projection");
-        GLint light_pos_loc = shader_get_uniform_location(shader, "lightPos");
         GLint camera_pos_loc = shader_get_uniform_location(shader, "cameraPos");
-        GLint object_color_loc = shader_get_uniform_location(shader, "objectColor");
-        GLint ambient_color_loc = shader_get_uniform_location(shader, "ambientColor");
         GLint object_scale_loc = shader_get_uniform_location(shader, "objectScale");
-        GLint neon_amount_loc = shader_get_uniform_location(shader, "neonAmount");
 
         if (model_loc >= 0) glUniformMatrix4fv(model_loc, 1, GL_FALSE, (const float*)model);
         if (inverse_model_loc >= 0) glUniformMatrix4fv(inverse_model_loc, 1, GL_FALSE, (const float*)inverse_model);
         if (view_loc >= 0) glUniformMatrix4fv(view_loc, 1, GL_FALSE, (const float*)view);
         if (projection_loc >= 0) glUniformMatrix4fv(projection_loc, 1, GL_FALSE, (const float*)projection);
-        if (light_pos_loc >= 0) glUniform3fv(light_pos_loc, 1, light_pos);
         if (camera_pos_loc >= 0) glUniform3fv(camera_pos_loc, 1, camera->position);
-        if (object_color_loc >= 0) glUniform3fv(object_color_loc, 1, object_color);
-        if (ambient_color_loc >= 0) glUniform3fv(ambient_color_loc, 1, ambient_color);
         if (object_scale_loc >= 0) glUniform3fv(object_scale_loc, 1, object->scale);
-        if (neon_amount_loc >= 0) glUniform1f(neon_amount_loc, object->type == TYPE_PLATFORM ? 1.0f : 0.0f);
+
+        if (material->render_callback) {
+            material->render_callback(engine_id, scene, object, material, shader, camera);
+        }
 
         glBindVertexArray(mesh->vao);
         glDrawElements(GL_TRIANGLES, (GLsizei)(mesh->ebo_size / sizeof(GLuint)), GL_UNSIGNED_INT, 0);
@@ -418,10 +274,7 @@ bool Tropic_setKeyCallback(TropicID engine_id, void* callback)
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 {
     Tropic *self = Tropic_getById( engine );
-    Scene *scene = Tropic_getCurrentScenePtr(self);
     if (!self || !objects || num_objects <= 0) return;
-
-    (void)_Tropic_ensureRendererReady(engine, self, scene);
 
     for (int i = 0; i < num_objects; i++) {
         Object proto = {0};
@@ -429,20 +282,6 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
         memcpy(proto.pos, objects[i].position, sizeof(vec3));
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
-
-        if ( scene )
-            switch (proto.type)
-            {
-
-            case TYPE_PLATFORM:
-                proto.mesh_id = scene->default_platform_mesh;
-                proto.shader_id = scene->default_platform_shader;
-                break;
-            case TYPE_CUBE:
-                proto.mesh_id = scene->default_platform_mesh;
-                proto.shader_id = scene->default_platform_shader;
-                break;
-            }
 
         (void)Tropic_newObject( engine, &proto);
     }
@@ -640,7 +479,6 @@ bool Tropic_freeShader(TropicID engine_id, ShaderID id)
     if (ok) free(shader);
     return ok;
 }
-
 
 void Tropic_cleanup(Tropic* self)
 {

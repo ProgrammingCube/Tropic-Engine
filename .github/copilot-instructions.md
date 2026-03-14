@@ -5,3 +5,4 @@
 - Gameplay should not hard-code wall/ground/ceiling. Use a separate gravity flip function that changes the gravity vector independently of world spin, so an upside-down world can still cause the player to fall if no supporting surface exists. Left/right/jump directions should be derived from the current gravity and orientation.
 - Prefer keeping game-specific jump behavior out of the engine core by moving Tropic_jumpObject-like logic into the game layer, such as engine_test/player code.
 - Create new shader files instead of modifying the existing platform shaders to ensure a clean implementation approach. The neon tubes must appear as glowing pipes inside the platform volume, not painted onto the outer surface.
+- Reference engine resources by IDs where possible, including materials via MaterialID, to facilitate easy sharing.

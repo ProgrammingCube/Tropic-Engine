@@ -21,6 +21,13 @@ static void _Scene_freeShaderPayload(void *payload)
     free(shader);
 }
 
+static void _Scene_freeMaterialPayload(void *payload)
+{
+    TropicMaterial *material = (TropicMaterial*)payload;
+    if (!material) return;
+    free(material);
+}
+
 static void _Scene_free( Scene* scene )
 {
     if ( !scene ) return;
@@ -40,6 +47,10 @@ static void _Scene_free( Scene* scene )
     if ( scene->shaders_manager ) {
         idmgr_free_all( scene->shaders_manager, _Scene_freeShaderPayload );
         scene->shaders_manager = NULL;
+    }
+    if ( scene->materials_manager ) {
+        idmgr_free_all( scene->materials_manager, _Scene_freeMaterialPayload );
+        scene->materials_manager = NULL;
     }
     if ( scene->cameras_manager ) {
         idmgr_free_all( scene->cameras_manager, free );
@@ -102,15 +113,14 @@ SceneID Tropic_createScene( TropicID engine_id, const char* name )
     scene->meshes_manager = idmgr_create( 128 );
     scene->textures_manager = idmgr_create( 128 );
     scene->cameras_manager = idmgr_create( 32 );
-        scene->shaders_manager = idmgr_create( 64 );
-        scene->default_platform_mesh = 0;
-        scene->default_platform_shader = 0;
-        scene->renderer_ready = false;
+    scene->shaders_manager = idmgr_create( 64 );
+    scene->materials_manager = idmgr_create( 64 );
     if ( !scene->objects_manager ||
          !scene->meshes_manager ||
          !scene->textures_manager ||
-            !scene->cameras_manager ||
-            !scene->shaders_manager ) {
+         !scene->cameras_manager ||
+         !scene->shaders_manager ||
+         !scene->materials_manager ) {
         _Scene_free( scene );
         return 0;
     }

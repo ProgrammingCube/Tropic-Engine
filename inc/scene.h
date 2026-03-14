@@ -34,10 +34,7 @@ typedef struct sScene
     IDManager* meshes_manager;
     IDManager* textures_manager;
     IDManager* shaders_manager;
-
-    MeshID default_platform_mesh;
-    ShaderID default_platform_shader;
-    bool renderer_ready;
+    IDManager* materials_manager;
 } Scene;
 
 SceneID  Tropic_createScene( TropicID engine_id, const char* name );

@@ -7,6 +7,7 @@
 #include <GLFW/glfw3.h>
 #include "tropic_gamestate.h"
 #include "camera.h"
+#include "material.h"
 #include "object.h"
 #include "scene.h"
 #include "handles.h"

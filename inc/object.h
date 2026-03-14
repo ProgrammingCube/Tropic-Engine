@@ -4,9 +4,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "tropic_datatypes.h"
+#include "material.h"
 #include "mesh.h"
 
 typedef struct sScene Scene;
+typedef struct sObject Object;
 
 typedef enum eObjectType
 {
@@ -68,12 +70,11 @@ typedef struct sObjectSpec
     vec3 rotation;
 } ObjectSpec;
 
-typedef struct sObject
+struct sObject
 {
     Scene* _scene_ptr;
     ObjectID id;
-    MeshID mesh_id;
-    ShaderID shader_id;
+    MaterialID material_id;
     ObjectType type;
     bool active;
     Position pos;
@@ -82,7 +83,7 @@ typedef struct sObject
     TropicCollider collider;
     TropicPhysicsBody body;
     Mesh mesh;
-} Object;
+};
 
 ObjectID Tropic_newObject(TropicID engine_id, const Object* proto);
 Object*  Tropic_getObject( TropicID engine_id, ObjectID id);

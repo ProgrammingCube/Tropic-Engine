@@ -23,6 +23,7 @@ int main(int argc, char* argv[])
         .coyote_time = 0.08f,
     };
     EngineTestLoopState loop_state = {0};
+    EngineTestRenderResources render_resources = {0};
     TropicID tropicEngine = Tropic_create();
     CameraID camera_id;
     ObjectID player = 0;
@@ -55,12 +56,37 @@ int main(int argc, char* argv[])
         goto cleanup;
 	}
 
+    render_resources.cube_mesh = _create_test_cube_mesh(tropicEngine);
+    if (render_resources.cube_mesh == 0)
+    {
+        fprintf(stderr, "Failed to create test cube mesh.\n");
+        goto cleanup;
+    }
+
+    if (!_load_test_volume_shader(tropicEngine, &render_resources.volume_shader))
+    {
+        fprintf(stderr, "Failed to load test platform shader.\n");
+        goto cleanup;
+    }
+
+    if (!_init_test_materials(tropicEngine, &render_resources))
+    {
+        fprintf(stderr, "Failed to create test materials.\n");
+        goto cleanup;
+    }
+
     if (!_load_test_level(tropicEngine, &objects, &num_objects))
     {
         goto cleanup;
     }
 
     Tropic_loadObjects(tropicEngine, objects, num_objects);
+
+    if (!_configure_test_scene_rendering(tropicEngine, &render_resources))
+    {
+        fprintf(stderr, "Failed to configure test scene rendering.\n");
+        goto cleanup;
+    }
 
     camera_id = Tropic_getActiveCameraId(tropicEngine);
     if (camera_id == 0)
@@ -71,6 +97,12 @@ int main(int argc, char* argv[])
 
     if (!_create_player(tropicEngine, &player))
     {
+        goto cleanup;
+    }
+
+    if (!_configure_test_object_rendering(tropicEngine, player, &render_resources))
+    {
+        fprintf(stderr, "Failed to configure player rendering.\n");
         goto cleanup;
     }
 
