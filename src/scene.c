@@ -93,6 +93,10 @@ SceneID Tropic_createScene( TropicID engine_id, const char* name )
     scene->entities = NULL;
     scene->cameras = NULL;
     scene->active_camera = 0;
+    glm_vec3_copy((vec3){ 0.2f, 0.2f, 0.2f }, scene->ambient_light_color);
+    glm_vec3_copy((vec3){ 0.1f, 0.1f, 0.1f }, scene->background_color);
+    glm_vec3_copy((vec3){ 0.0f, -18.0f, 0.0f }, scene->gravity);
+    glm_mat3_identity(scene->world_up);
 
     scene->objects_manager = idmgr_create( 256 );
     scene->meshes_manager = idmgr_create( 128 );

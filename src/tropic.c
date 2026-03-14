@@ -320,17 +320,30 @@ void Tropic_Render( TropicID engine_id )
         ShaderID shader_id = object->shader_id;
         vec3 object_color = {0.65f, 0.65f, 0.65f};
 
-        if (object->type == TYPE_PLATFORM) {
+        switch (object->type)
+        {
+        case TYPE_CUBE:
+            if (mesh_id == 0) mesh_id = scene->default_platform_mesh;
+            if (shader_id == 0) shader_id = scene->default_platform_shader;
+			// change color for cubes to differentiate from platforms
+			object_color[0] = 0.75f;
+			object_color[1] = 0.35f;
+			object_color[2] = 0.35f;
+            break;
+        case TYPE_PLATFORM:
             if (mesh_id == 0) mesh_id = scene->default_platform_mesh;
             if (shader_id == 0) shader_id = scene->default_platform_shader;
             object_color[0] = 0.35f;
             object_color[1] = 0.75f;
             object_color[2] = 0.45f;
-        } else if (object->type == TYPE_GENERIC) {
+            break;
+        case TYPE_GENERIC:
             if (mesh_id == 0 || shader_id == 0) continue;
-        } else {
+            break;
+        default:
             continue;
-        }
+            break;
+        };
 
         Mesh *mesh = Tropic_getMesh(engine_id, mesh_id);
         Shader *shader = Tropic_getShader(engine_id, shader_id);
@@ -370,6 +383,14 @@ void Tropic_Render( TropicID engine_id )
     glfwSwapBuffers(self->window);
 }
 
+bool Tropic_setKeyCallback(TropicID engine_id, void* callback)
+{
+    Tropic *self = Tropic_getById(engine_id);
+    if (!self || !self->window) return false;
+    glfwSetKeyCallback(self->window, (GLFWkeyfun)callback);
+	return true;
+}
+
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 {
     Tropic *self = Tropic_getById( engine );
@@ -385,10 +406,19 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
 
-        if (scene && proto.type == TYPE_PLATFORM) {
-            proto.mesh_id = scene->default_platform_mesh;
-            proto.shader_id = scene->default_platform_shader;
-        }
+        if ( scene )
+            switch (proto.type)
+            {
+
+            case TYPE_PLATFORM:
+                proto.mesh_id = scene->default_platform_mesh;
+                proto.shader_id = scene->default_platform_shader;
+                break;
+            case TYPE_CUBE:
+                proto.mesh_id = scene->default_platform_mesh;
+                proto.shader_id = scene->default_platform_shader;
+                break;
+            }
 
         (void)Tropic_newObject( engine, &proto);
     }

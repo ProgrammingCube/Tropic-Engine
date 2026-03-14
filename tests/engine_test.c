@@ -11,137 +11,122 @@
 * Add comments and documentation to all functions and data structures.
 */
 
-char keyboard[256] = { 0 };
-
-static void _key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
-{
-    (void)scancode; (void)mods;
-
-    if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
-    {
-        glfwSetWindowShouldClose(window, GLFW_TRUE);
-    }
-
-    key %= 256; // Ensure key is within bounds of keyboard array
-
-    if (action == GLFW_PRESS)
-    {
-        keyboard[key] = 1;
-    }
-    else if (action == GLFW_RELEASE)
-    {
-        keyboard[key] = 0;
-    }
-}
-
 int main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
-    TropicID tropicEngine = Tropic_create();
-    Tropic_setActiveEngine(tropicEngine);
-
-    Tropic_CreateWindow(tropicEngine, 1280, 720, "Tropic Engine Test", false);
-    glfwSetKeyCallback(Tropic_getWindow(tropicEngine), _key_callback);
-
-    int num_objects = 0;
-    const char* level_candidates[] = {
-        "assets/levels/test_level.json",
-        "../assets/levels/test_level.json",
-        "../../assets/levels/test_level.json",
+    const EngineTestConfig config = {
+        .move_speed = 5.0f,
+        .forward_speed = 14.0f,
+        .jump_speed = 9.0f,
+        .fixed_delta = 1.0f / 120.0f,
+        .jump_buffer_time = 0.12f,
+        .coyote_time = 0.08f,
     };
+    EngineTestLoopState loop_state = {0};
+    TropicID tropicEngine = Tropic_create();
+    CameraID camera_id;
+    ObjectID player = 0;
+    ObjectSpec* objects = NULL;
+    int num_objects = 0;
+    int exit_code = 1;
 
-    LevelSpec* parsedData = NULL;
-    const char* loaded_level_path = NULL;
-    for (size_t i = 0; i < sizeof(level_candidates) / sizeof(level_candidates[0]); i++)
+    if (tropicEngine == 0)
     {
-        parsedData = parseLevel(level_candidates[i], &num_objects);
-        if (parsedData)
-        {
-            loaded_level_path = level_candidates[i];
-            break;
-        }
-    }
-
-    if (!parsedData)
-    {
-        fprintf(stderr, "Failed to load level file from known paths.\n");
-        Tropic_destroy(tropicEngine);
+        fprintf(stderr, "Failed to create engine.\n");
         return 1;
     }
 
-    ObjectSpec* objects = levelspec_to_objects(parsedData, tropicEngine, &num_objects);
-    level_free(parsedData);
-
-    if (!objects || num_objects <= 0)
+    if (!Tropic_setActiveEngine(tropicEngine))
     {
-        fprintf(stderr, "Level loaded (%s) but produced no objects.\n", loaded_level_path);
-        Tropic_destroy(tropicEngine);
-        return 1;
+        fprintf(stderr, "Failed to set active engine.\n");
+        goto cleanup;
     }
 
-    fprintf(stdout, "Loaded %d objects from %s\n", num_objects, loaded_level_path);
+    if (!Tropic_CreateWindow(tropicEngine, 1280, 720, "Tropic Engine Test", false))
+    {
+        fprintf(stderr, "Failed to create test window.\n");
+        goto cleanup;
+    }
+
+    //glfwSetKeyCallback(Tropic_getWindow(tropicEngine), _key_callback);
+	if ( !Tropic_setKeyCallback(tropicEngine, _key_callback) )
+    {
+        fprintf(stderr, "Failed to set key callback.\n");
+        goto cleanup;
+	}
+
+    if (!_load_test_level(tropicEngine, &objects, &num_objects))
+    {
+        goto cleanup;
+    }
 
     Tropic_loadObjects(tropicEngine, objects, num_objects);
 
-    CameraID camera_id = Tropic_getActiveCameraId(tropicEngine);
+    camera_id = Tropic_getActiveCameraId(tropicEngine);
     if (camera_id == 0)
     {
         fprintf(stderr, "No active camera found.\n");
-        Tropic_destroy(tropicEngine);
-        return 1;
+        goto cleanup;
     }
 
-    ObjectID id = Tropic_findFirstObjectOfType(tropicEngine, TYPE_PLATFORM);
-    if (id == 0)
+    if (!_create_player(tropicEngine, &player))
+    {
+        goto cleanup;
+    }
+
+    if (Tropic_findFirstObjectOfType(tropicEngine, TYPE_PLATFORM) == 0)
     {
         fprintf(stderr, "No platform object found.\n");
-        Tropic_destroy(tropicEngine);
-        return 1;
+        goto cleanup;
     }
 
-    /* Keep the camera on the same side as the engine's default camera (+Z).
-     * Bind the camera to follow the platform automatically each frame. */
-    TropicFollowConfig follow_cfg;
-    glm_vec3_copy( (vec3){ 0.0f, 4.0f, 10.0f }, follow_cfg.camera_offset );
-    glm_vec3_copy( (vec3){ 0.0f, 1.0f,  0.0f }, follow_cfg.target_offset );
-    follow_cfg.space = FOLLOW_WORLD_SPACE;
-
-    if ( !Tropic_bindCameraToObject( tropicEngine, camera_id, id, &follow_cfg ) )
+    if (!_bind_follow_camera(tropicEngine, camera_id, player))
     {
-        fprintf( stderr, "Failed to bind camera to object.\n" );
-        Tropic_destroy( tropicEngine );
-        return 1;
+        goto cleanup;
     }
 
-    double last_time = glfwGetTime();
+    if (Tropic_getGameState(tropicEngine)->play_speed <= 0.0f)
+    {
+        Tropic_getGameState(tropicEngine)->play_speed = 1.0f;
+    }
 
-    /* main loop */
+    loop_state.last_time = Tropic_getTime();
+
     while (Tropic_Update(tropicEngine))
     {
-        double current_time = glfwGetTime();
-        double delta_time = current_time - last_time;
-        last_time = current_time;
+        double current_time = Tropic_getTime();
+        double delta_time = current_time - loop_state.last_time;
+        float time_scale = Tropic_getGameState(tropicEngine)->play_speed;
+        bool jump_pressed = keyboard[GLFW_KEY_SPACE] != 0;
+        bool jump_requested = jump_pressed && !loop_state.jump_was_down;
 
-        float speed = 5.0f * Tropic_getGameState(tropicEngine)->play_speed;
-        float step = (float)(speed * delta_time);
+        loop_state.last_time = current_time;
 
-        vec3 translation = { 0.0f, 0.0f, 0.0f };
+        _update_play_speed(tropicEngine, delta_time, &loop_state.speed_adjust_timer);
 
-        if (keyboard[GLFW_KEY_W]) translation[1] += step;
-        if (keyboard[GLFW_KEY_S]) translation[1] -= step;
-        if (keyboard[GLFW_KEY_A]) translation[0] -= step;
-        if (keyboard[GLFW_KEY_D]) translation[0] += step;
-        if (keyboard[GLFW_KEY_Q]) translation[2] += step;
-        if (keyboard[GLFW_KEY_E]) translation[2] -= step;
-
-        if (!Tropic_translateObject(tropicEngine, id, translation))
+        if (jump_requested)
         {
-            fprintf(stderr, "Failed to move platform.\n");
+            loop_state.jump_buffer_timer = config.jump_buffer_time;
         }
+
+        loop_state.physics_accumulator += delta_time;
+
+        if (!_step_player_controller(tropicEngine, player, &config, &loop_state, time_scale))
+        {
+            goto cleanup;
+        }
+
+        loop_state.jump_was_down = jump_pressed;
 
         Tropic_Render(tropicEngine);
     }
 
-    Tropic_destroy(tropicEngine);
-    return 0;
+    exit_code = 0;
+
+cleanup:
+    if (tropicEngine != 0)
+    {
+        Tropic_destroy(tropicEngine);
+    }
+    return exit_code;
 }

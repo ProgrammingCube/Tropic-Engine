@@ -1,5 +1,6 @@
 #ifndef SCENE_H
 #define SCENE_H
+#include <cglm/cglm.h>
 #include <vector.h>
 #include "object.h"
 #include "handles.h"
@@ -14,6 +15,13 @@ typedef struct sScene
     vector( ObjectID ) entities;                    // global vector of all entity handles in the game
     vector( CameraID ) cameras;
     CameraID active_camera;
+	
+    vec3 ambient_light_color;
+	vec3 background_color;
+
+    vec3 gravity;
+  mat3 world_up; /* 3x3 matrix representing the world's basis, used for orienting objects and cameras. */
+
     // Add more fields as needed for your scene
     void (*on_enter)(struct sScene* self);
     void (*on_update)(struct sScene* self, float delta_time);

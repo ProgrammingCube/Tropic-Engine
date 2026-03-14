@@ -17,6 +17,8 @@
 
 extern TropicID _TROPIC_ACTIVE_ENGINE;
 
+#define Tropic_getTime() glfwGetTime()
+
 // probably should move at least objects and cameras to scenes
 // refactor Scene to be SceneID vector and have Scene*'s be in the memory pool
 typedef struct sTropic
@@ -50,10 +52,30 @@ TropicWindowID* Tropic_CreateWindow( TropicID engine_id, int width, int height, 
 int Tropic_Update( TropicID engine_id );
 void Tropic_Render( TropicID engine_id );
 
+bool Tropic_setKeyCallback(TropicID engine_id, void* callback);
+
 void* Tropic_parseLevel(TropicID engine, const char* level_path, int* out_num_objects );
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
 int Tropic_getNumObjectsInScene( TropicID engine );
 int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
+bool Tropic_setSceneGravity( TropicID engine_id, vec3 gravity );
+void Tropic_getSceneGravity( TropicID engine_id, vec3 out_gravity );
+bool Tropic_buildControlBasis( TropicID engine_id,
+                               vec3 reference_forward,
+                               vec3 out_right,
+                               vec3 out_up,
+                               vec3 out_forward );
+bool Tropic_configureObjectCollider( TropicID engine_id,
+                                     ObjectID object_id,
+                                     bool enabled,
+                                     vec3 half_extents,
+                                     vec3 offset,
+                                     uint32_t flags );
+bool Tropic_configurePhysicsBody( TropicID engine_id,
+                                  ObjectID object_id,
+                                  bool enabled,
+                                  bool is_static );
+int Tropic_stepPhysics( TropicID engine_id, float delta_time );
 
 // Sets active engine by TropicID. Needs to be an engine global
 bool Tropic_setActiveEngine( TropicID engine_id );

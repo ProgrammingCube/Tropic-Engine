@@ -2,6 +2,16 @@
 #include "tropic.h"
 #include "object.h"
 
+#include <math.h>
+
+static void _Tropic_setDefaultColliderHalfExtents(Object *object)
+{
+    if (!object) return;
+    object->collider.half_extents[0] = fabsf(object->scale[0]);
+    object->collider.half_extents[1] = fabsf(object->scale[1]);
+    object->collider.half_extents[2] = fabsf(object->scale[2]);
+}
+
 // perhaps change to Tropic_addObject and have a separate, true, Tropic_newObject that adds a generic object?
 // add _scene_id to Object struct so we can easily query which scene an object belongs to without having to search through all scenes?
 ObjectID Tropic_newObject( TropicID engine, const Object* proto)
@@ -17,6 +27,36 @@ ObjectID Tropic_newObject( TropicID engine, const Object* proto)
     /* ensure sensible defaults */
     if (o->type == 0) o->type = TYPE_GENERIC;
     o->active = true;
+
+    if (o->collider.type == TROPIC_COLLIDER_NONE) {
+        o->collider.type = TROPIC_COLLIDER_AABB;
+    }
+    if (o->collider.half_extents[0] == 0.0f &&
+        o->collider.half_extents[1] == 0.0f &&
+        o->collider.half_extents[2] == 0.0f) {
+        _Tropic_setDefaultColliderHalfExtents(o);
+    }
+
+    if (o->body.ground_friction <= 0.0f) o->body.ground_friction = 18.0f;
+    if (o->body.air_friction <= 0.0f) o->body.air_friction = 4.0f;
+
+    switch (o->type)
+    {
+    case TYPE_PLATFORM:
+        o->collider.enabled = true;
+        o->collider.flags |= TROPIC_COLLIDER_FLAG_SOLID;
+        break;
+    case TYPE_SPIKE:
+        o->collider.enabled = true;
+        o->collider.flags |= TROPIC_COLLIDER_FLAG_HAZARD;
+        break;
+    case TYPE_JUMPPAD:
+        o->collider.enabled = true;
+        o->collider.flags |= TROPIC_COLLIDER_FLAG_TRIGGER;
+        break;
+    default:
+        break;
+    }
 
     Handle local_id = idmgr_alloc(scene->objects_manager, o);
     if (local_id == 0) { free(o); return 0; }
@@ -86,6 +126,55 @@ ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type )
     return 0;
 }
 
+bool Tropic_setObjectPosition( TropicID engine_id, ObjectID id, vec3 position )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o) return false;
+    glm_vec3_copy(position, o->pos);
+    return true;
+}
+
+bool Tropic_setObjectRotation( TropicID engine_id, ObjectID id, vec3 rotation )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o) return false;
+    glm_vec3_copy(rotation, o->rot);
+    return true;
+}
+
+bool Tropic_setObjectScale( TropicID engine_id, ObjectID id, vec3 scale )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o) return false;
+    glm_vec3_copy(scale, o->scale);
+    _Tropic_setDefaultColliderHalfExtents(o);
+    return true;
+}
+
+bool Tropic_getObjectPosition( TropicID engine_id, ObjectID id, vec3 out_position )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o || !out_position) return false;
+    glm_vec3_copy(o->pos, out_position);
+    return true;
+}
+
+bool Tropic_getObjectRotation( TropicID engine_id, ObjectID id, vec3 out_rotation )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o || !out_rotation) return false;
+    glm_vec3_copy(o->rot, out_rotation);
+    return true;
+}
+
+bool Tropic_getObjectScale( TropicID engine_id, ObjectID id, vec3 out_scale )
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o || !out_scale) return false;
+    glm_vec3_copy(o->scale, out_scale);
+    return true;
+}
+
 bool Tropic_translateObject( TropicID engine_id, ObjectID id, vec3 translation )
 {
     Object *o = Tropic_getObject(engine_id, id);
@@ -107,5 +196,9 @@ bool Tropic_scaleObject( TropicID engine_id, ObjectID id, vec3 scale )
     Object *o = Tropic_getObject(engine_id, id);
     if (!o) return false;
     glm_vec3_mul(o->scale, scale, o->scale);
+    glm_vec3_mul(o->collider.half_extents, scale, o->collider.half_extents);
+    o->collider.half_extents[0] = fabsf(o->collider.half_extents[0]);
+    o->collider.half_extents[1] = fabsf(o->collider.half_extents[1]);
+    o->collider.half_extents[2] = fabsf(o->collider.half_extents[2]);
     return true;
 }
