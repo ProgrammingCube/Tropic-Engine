@@ -6,7 +6,6 @@
 * TODO:
 * Add error handling and logging to all functions, especially those that can fail
 * Get rid of the global _engines_mgr and instead have a more robust way to manage multiple engine instances if needed (e.g. a singleton pattern or a context struct that holds the manager).
-* Add more functionality to the engine (e.g. rendering, input handling, physics) and test it in the main loop.
 * Add unit tests for the engine functions and level parser.
 * Add comments and documentation to all functions and data structures.
 */
@@ -14,14 +13,16 @@
 int main(int argc, char* argv[])
 {
     (void)argc; (void)argv;
+
     const EngineTestConfig config = {
         .move_speed = 5.0f,
-        .forward_speed = 14.0f,
+        .forward_speed = 16.0f,
         .jump_speed = 9.0f,
         .fixed_delta = 1.0f / 120.0f,
         .jump_buffer_time = 0.12f,
         .coyote_time = 0.08f,
     };
+
     EngineTestLoopState loop_state = {0};
     EngineTestRenderResources render_resources = {0};
     TropicID tropicEngine = Tropic_create();
@@ -30,6 +31,12 @@ int main(int argc, char* argv[])
     ObjectSpec* objects = NULL;
     int num_objects = 0;
     int exit_code = 1;
+
+	vec3 GRAVITY_DOWN = { 0.0f, -9.81f, 0.0f };
+	vec3 GRAVITY_UP = { 0.0f, 9.81f, 0.0f };
+	vec3 GRAVITY_LEFT = { -9.81f, 0.0f, 0.0f };
+	vec3 GRAVITY_RIGHT = { 9.81f, 0.0f, 0.0f };
+	vec3 GRAVITY_ZERO = { 0.0f, 0.0f, 0.0f };
 
     if (tropicEngine == 0)
     {
@@ -123,6 +130,17 @@ int main(int argc, char* argv[])
     }
 
     loop_state.last_time = Tropic_getTime();
+
+	Tropic_setBackgroundColor(tropicEngine, (vec4) { 0.0f, 0.0f, 0.0f, 1.0f });
+
+	SceneID currentScene = Tropic_getCurrentSceneID(tropicEngine);
+
+	//Tropic_invertGravity(tropicEngine, currentScene);
+	//Tropic_setGravity(tropicEngine, currentScene, GRAVITY_LEFT);
+    //Tropic_setGravity(tropicEngine, currentScene, GRAVITY_ZERO);
+
+	//Tropic_spinCamera(tropicEngine, camera_id, (vec3) { 0.0f, 0.0f, 1.0f }, 270.0f, 1.0f);
+	//Tropic_spinWorldAroundObject(tropicEngine, player, (vec3) { 0.0f, 0.0f, 1.0f }, 360.0f, 2.0f);
 
     while (Tropic_Update(tropicEngine))
     {

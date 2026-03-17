@@ -1,8 +1,96 @@
 #include "tropic.h"
 #include "camera.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
+
+static bool _Tropic_normalizeSpinAxis(vec3 axis, vec3 out_axis)
+{
+    if (!axis || !out_axis || glm_vec3_norm2(axis) <= 0.000001f) return false;
+    glm_vec3_normalize_to(axis, out_axis);
+    return true;
+}
+
+static void _Tropic_applyCameraOrbit(TropicCamera *camera,
+                                     vec3 base_position,
+                                     vec3 base_target,
+                                     vec3 base_up,
+                                     vec3 axis,
+                                     float degrees)
+{
+    mat4 rotation;
+    vec3 offset;
+    vec4 offset4;
+    vec4 rotated_offset4;
+    vec4 up4;
+    vec4 rotated_up4;
+    vec3 rotated_offset;
+    vec3 rotated_up;
+
+    if (!camera) return;
+
+    glm_rotate_make(rotation, glm_rad(degrees), axis);
+
+    glm_vec3_sub(base_position, base_target, offset);
+    offset4[0] = offset[0];
+    offset4[1] = offset[1];
+    offset4[2] = offset[2];
+    offset4[3] = 0.0f;
+    glm_mat4_mulv(rotation, offset4, rotated_offset4);
+    glm_vec3(rotated_offset4, rotated_offset);
+
+    up4[0] = base_up[0];
+    up4[1] = base_up[1];
+    up4[2] = base_up[2];
+    up4[3] = 0.0f;
+    glm_mat4_mulv(rotation, up4, rotated_up4);
+    glm_vec3(rotated_up4, rotated_up);
+    if (glm_vec3_norm2(rotated_up) > 0.000001f) {
+        glm_vec3_normalize(rotated_up);
+    }
+
+    glm_vec3_add(base_target, rotated_offset, camera->position);
+    glm_vec3_copy(base_target, camera->target);
+    glm_vec3_copy(rotated_up, camera->up);
+}
+
+static bool _Tropic_storeFollowOffsetFromCamera(TropicID engine_id, TropicCamera *camera)
+{
+    Object *object;
+    vec3 world_offset;
+
+    if (!camera || camera->follow_object_id == 0) return false;
+
+    object = Tropic_getObject(engine_id, camera->follow_object_id);
+    if (!object || !object->active) return false;
+
+    glm_vec3_sub(camera->position, object->pos, world_offset);
+
+    if (camera->follow_cfg.space == FOLLOW_LOCAL_SPACE) {
+        mat4 rotation;
+        mat4 inverse_rotation;
+        vec4 world_offset4;
+        vec4 local_offset4;
+
+        glm_mat4_identity(rotation);
+        glm_rotate(rotation, glm_rad(object->rot[0]), (vec3){ 1.0f, 0.0f, 0.0f });
+        glm_rotate(rotation, glm_rad(object->rot[1]), (vec3){ 0.0f, 1.0f, 0.0f });
+        glm_rotate(rotation, glm_rad(object->rot[2]), (vec3){ 0.0f, 0.0f, 1.0f });
+        glm_mat4_inv(rotation, inverse_rotation);
+
+        world_offset4[0] = world_offset[0];
+        world_offset4[1] = world_offset[1];
+        world_offset4[2] = world_offset[2];
+        world_offset4[3] = 0.0f;
+        glm_mat4_mulv(inverse_rotation, world_offset4, local_offset4);
+        glm_vec3(local_offset4, camera->follow_cfg.camera_offset);
+    } else {
+        glm_vec3_copy(world_offset, camera->follow_cfg.camera_offset);
+    }
+
+    return true;
+}
 
 CameraID Tropic_newCamera( TropicID engine_id,
                            vec3 position,
@@ -198,6 +286,107 @@ bool Tropic_followObjectById(TropicID engine_id,
 
     glm_vec3_copy(camera_position, camera->position);
     glm_vec3_copy(focus_point, camera->target);
+
+    return true;
+}
+
+bool Tropic_spinCamera( TropicID engine_id,
+                        CameraID camera_id,
+                        vec3 axis,
+                        float degrees,
+                        float duration_seconds )
+{
+    return Tropic_spinCameraEx( engine_id,
+                                camera_id,
+                                axis,
+                                degrees,
+                                duration_seconds,
+                                TROPIC_CAMERA_SPIN_FLAG_PERSIST_FOLLOW_OFFSET );
+}
+
+bool Tropic_spinCameraEx( TropicID engine_id,
+                          CameraID camera_id,
+                          vec3 axis,
+                          float degrees,
+                          float duration_seconds,
+                          uint32_t flags )
+{
+    TropicCamera *camera = Tropic_getCamera( engine_id, camera_id );
+    vec3 normalized_axis;
+
+    if ( !camera ) return false;
+    if ( fabsf( degrees ) <= 0.000001f ) {
+        camera->spin.active = false;
+        camera->spin.elapsed_seconds = 0.0f;
+        camera->spin.duration_seconds = 0.0f;
+        camera->spin.degrees = 0.0f;
+        camera->spin.flags = TROPIC_CAMERA_SPIN_FLAG_NONE;
+        return true;
+    }
+    if ( !_Tropic_normalizeSpinAxis( axis, normalized_axis ) ) return false;
+
+    glm_vec3_copy( normalized_axis, camera->spin.axis );
+    glm_vec3_copy( camera->position, camera->spin.start_position );
+    glm_vec3_copy( camera->target, camera->spin.start_target );
+    glm_vec3_copy( camera->up, camera->spin.start_up );
+    camera->spin.degrees = degrees;
+    camera->spin.elapsed_seconds = 0.0f;
+    camera->spin.duration_seconds = duration_seconds > 0.0f ? duration_seconds : 0.0f;
+    camera->spin.flags = flags;
+    camera->spin.active = camera->spin.duration_seconds > 0.0f;
+
+    if ( !camera->spin.active ) {
+        _Tropic_applyCameraOrbit( camera,
+                                  camera->spin.start_position,
+                                  camera->spin.start_target,
+                                  camera->spin.start_up,
+                                  camera->spin.axis,
+                                  camera->spin.degrees );
+    }
+
+    return true;
+}
+
+bool Tropic_applyCameraSpin( TropicID engine_id, CameraID camera_id )
+{
+    TropicCamera *camera = Tropic_getCamera( engine_id, camera_id );
+    vec3 base_position;
+    vec3 base_target;
+    float progress;
+    float degrees;
+
+    if ( !camera || !camera->spin.active ) return false;
+
+    progress = camera->spin.duration_seconds > 0.0f
+        ? camera->spin.elapsed_seconds / camera->spin.duration_seconds
+        : 1.0f;
+    if ( progress < 0.0f ) progress = 0.0f;
+    if ( progress > 1.0f ) progress = 1.0f;
+    degrees = camera->spin.degrees * progress;
+
+    if ( camera->follow_object_id != 0 ) {
+        glm_vec3_copy( camera->position, base_position );
+        glm_vec3_copy( camera->target, base_target );
+    } else {
+        glm_vec3_copy( camera->spin.start_position, base_position );
+        glm_vec3_copy( camera->spin.start_target, base_target );
+    }
+
+    _Tropic_applyCameraOrbit( camera,
+                              base_position,
+                              base_target,
+                              camera->spin.start_up,
+                              camera->spin.axis,
+                              degrees );
+
+    if ( progress >= 1.0f ) {
+        if ( camera->follow_object_id != 0 &&
+             ( camera->spin.flags & TROPIC_CAMERA_SPIN_FLAG_PERSIST_FOLLOW_OFFSET ) != 0u ) {
+            (void)_Tropic_storeFollowOffsetFromCamera( engine_id, camera );
+        }
+        camera->spin.active = false;
+        camera->spin.elapsed_seconds = camera->spin.duration_seconds;
+    }
 
     return true;
 }

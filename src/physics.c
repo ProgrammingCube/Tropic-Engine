@@ -8,16 +8,40 @@ static void _Tropic_copyDefaultGravity(vec3 out_gravity)
     glm_vec3_copy((vec3){ 0.0f, -18.0f, 0.0f }, out_gravity);
 }
 
+static void _Tropic_copyDefaultUp(vec3 out_up)
+{
+    glm_vec3_copy((vec3){ 0.0f, 1.0f, 0.0f }, out_up);
+}
+
+static void _Tropic_getSceneUp(Scene *scene, vec3 out_up)
+{
+    if (!out_up) return;
+
+    if (!scene || glm_vec3_norm2(scene->world_up[1]) <= 0.000001f) {
+        _Tropic_copyDefaultUp(out_up);
+        return;
+    }
+
+    glm_vec3_copy(scene->world_up[1], out_up);
+    glm_vec3_normalize(out_up);
+}
+
 static void _Tropic_getNormalizedGravity(Scene *scene, vec3 out_gravity)
 {
     if (!out_gravity) return;
 
-    if (!scene || glm_vec3_norm2(scene->gravity) <= 0.000001f) {
+    if (!scene) {
         _Tropic_copyDefaultGravity(out_gravity);
-    } else {
-        glm_vec3_copy(scene->gravity, out_gravity);
+        glm_vec3_normalize(out_gravity);
+        return;
     }
 
+    if (glm_vec3_norm2(scene->gravity) <= 0.000001f) {
+        glm_vec3_zero(out_gravity);
+        return;
+    }
+
+    glm_vec3_copy(scene->gravity, out_gravity);
     glm_vec3_normalize(out_gravity);
 }
 
@@ -42,7 +66,11 @@ static void _Tropic_getControlBasisFromGravity(Scene *scene,
     vec3 forward_ref;
 
     _Tropic_getNormalizedGravity(scene, gravity);
-    glm_vec3_negate_to(gravity, out_up);
+    if (glm_vec3_norm2(gravity) <= 0.000001f) {
+        _Tropic_getSceneUp(scene, out_up);
+    } else {
+        glm_vec3_negate_to(gravity, out_up);
+    }
 
     if (reference_forward && glm_vec3_norm2(reference_forward) > 0.000001f) {
         glm_vec3_normalize_to(reference_forward, forward_ref);
@@ -107,7 +135,6 @@ bool Tropic_setSceneGravity(TropicID engine_id, vec3 gravity)
     Tropic *self = Tropic_getById(engine_id);
     Scene *scene = Tropic_getCurrentScenePtr(self);
     if (!self || !scene || !gravity) return false;
-    if (glm_vec3_norm2(gravity) <= 0.000001f) return false;
     glm_vec3_copy(gravity, scene->gravity);
     return true;
 }
@@ -117,7 +144,7 @@ void Tropic_getSceneGravity(TropicID engine_id, vec3 out_gravity)
     Tropic *self = Tropic_getById(engine_id);
     Scene *scene = Tropic_getCurrentScenePtr(self);
     if (!out_gravity) return;
-    if (!self || !scene || glm_vec3_norm2(scene->gravity) <= 0.000001f) {
+    if (!self || !scene) {
         _Tropic_copyDefaultGravity(out_gravity);
         return;
     }
@@ -190,8 +217,13 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
     if (!self || !scene || delta_time <= 0.0f) return 0;
 
     Tropic_getSceneGravity(engine_id, gravity);
-    glm_vec3_normalize_to(gravity, gravity_dir);
-    glm_vec3_negate_to(gravity_dir, up);
+    if (glm_vec3_norm2(gravity) <= 0.000001f) {
+        glm_vec3_zero(gravity_dir);
+        _Tropic_getSceneUp(scene, up);
+    } else {
+        glm_vec3_normalize_to(gravity, gravity_dir);
+        glm_vec3_negate_to(gravity_dir, up);
+    }
 
     for (size_t i = 0; i < vector_size(scene->entities); i++) {
         Object *object = Tropic_getObject(engine_id, scene->entities[i]);

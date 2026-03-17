@@ -1,6 +1,7 @@
 #ifndef CAMERA_H
 #define CAMERA_H
 
+#include <stdint.h>
 #include <cglm/cglm.h>
 #include "handles.h"
 
@@ -26,6 +27,25 @@ typedef struct sTropicFollowConfig
     TropicFollowSpace space;
 } TropicFollowConfig;
 
+typedef enum eTropicCameraSpinFlags
+{
+    TROPIC_CAMERA_SPIN_FLAG_NONE = 0,
+    TROPIC_CAMERA_SPIN_FLAG_PERSIST_FOLLOW_OFFSET = 1u << 0,
+} TropicCameraSpinFlags;
+
+typedef struct sTropicCameraSpinState
+{
+    bool active;
+    vec3 axis;
+    vec3 start_position;
+    vec3 start_target;
+    vec3 start_up;
+    float degrees;
+    float duration_seconds;
+    float elapsed_seconds;
+    uint32_t flags;
+} TropicCameraSpinState;
+
 typedef struct sTropicCamera
 {
     Scene* _scene_ptr;
@@ -41,6 +61,7 @@ typedef struct sTropicCamera
     /* Follow binding — set via Tropic_bindCameraToObject. 0 = unbound. */
     ObjectID follow_object_id;
     TropicFollowConfig follow_cfg;
+    TropicCameraSpinState spin;
 } TropicCamera;
 
 CameraID Tropic_newCamera( TropicID engine_id,
@@ -99,5 +120,17 @@ bool Tropic_unbindCamera( TropicID engine_id, CameraID camera_id );
  * Tropic_Render for the active camera; can also be called manually.
  */
 bool Tropic_updateCameraFollow( TropicID engine_id, CameraID camera_id );
+bool Tropic_spinCamera( TropicID engine_id,
+                        CameraID camera_id,
+                        vec3 axis,
+                        float degrees,
+                        float duration_seconds );
+bool Tropic_spinCameraEx( TropicID engine_id,
+                          CameraID camera_id,
+                          vec3 axis,
+                          float degrees,
+                          float duration_seconds,
+                          uint32_t flags );
+bool Tropic_applyCameraSpin( TropicID engine_id, CameraID camera_id );
 
 #endif

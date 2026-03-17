@@ -15,6 +15,7 @@
 #include "mesh.h"
 #include "texture.h"
 #include "shader.h"
+#include "renderer.h"
 
 extern TropicID _TROPIC_ACTIVE_ENGINE;
 
@@ -34,6 +35,9 @@ typedef struct sTropic
     /* Resource pools */
     IDManager* scene_manager;
 
+    double last_update_time;
+    bool has_last_update_time;
+
     //Renderer* renderer;
     // Add more fields as needed
 } Tropic;
@@ -51,7 +55,6 @@ TropicWindowID* Tropic_getWindow( TropicID engine_id );
 /* Core lifecycle */
 TropicWindowID* Tropic_CreateWindow( TropicID engine_id, int width, int height, const char* title, bool fullscreen );
 int Tropic_Update( TropicID engine_id );
-void Tropic_Render( TropicID engine_id );
 
 bool Tropic_setKeyCallback(TropicID engine_id, void* callback);
 
@@ -82,9 +85,6 @@ int Tropic_stepPhysics( TropicID engine_id, float delta_time );
 bool Tropic_setActiveEngine( TropicID engine_id );
 Tropic* Tropic_getActiveEnginePtr( void );
 TropicID Tropic_getActiveEngineId( void );
-
-/* Current scene resolver */
-Scene* Tropic_getCurrentScenePtr( Tropic* self );
 
 /* Mesh pool APIs */
 MeshID   Tropic_newMesh(TropicID engine_id, const Mesh* proto);
