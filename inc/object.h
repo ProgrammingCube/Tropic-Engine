@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <vector.h>
 #include "tropic_datatypes.h"
 #include "material.h"
 #include "mesh.h"
@@ -37,6 +38,31 @@ typedef enum eTropicColliderFlags
     TROPIC_COLLIDER_FLAG_TRIGGER = 1u << 1,
     TROPIC_COLLIDER_FLAG_HAZARD = 1u << 2,
 } TropicColliderFlags;
+
+typedef enum eTropicCollisionPhase
+{
+    TROPIC_COLLISION_ENTER,
+    TROPIC_COLLISION_STAY,
+    TROPIC_COLLISION_EXIT,
+} TropicCollisionPhase;
+
+typedef struct sTropicCollisionEvent
+{
+    ObjectID self_id;
+    ObjectID other_id;
+    TropicCollisionPhase phase;
+    uint32_t self_flags;
+    uint32_t other_flags;
+    bool is_trigger;
+    bool is_solid_contact;
+    float impact_speed;
+    vec3 normal;
+    vec3 relative_velocity;
+} TropicCollisionEvent;
+
+typedef void (*TropicCollisionCallback)(TropicID engine_id,
+                                        const TropicCollisionEvent *event,
+                                        void *user_data);
 
 typedef struct sTropicCollider
 {
@@ -82,6 +108,10 @@ struct sObject
     Rotation rot;
     TropicCollider collider;
     TropicPhysicsBody body;
+    TropicCollisionCallback collision_callback;
+    void *collision_user_data;
+    vector( ObjectID ) current_collision_ids;
+    vector( ObjectID ) previous_collision_ids;
     Mesh mesh;
 };
 
@@ -97,6 +127,10 @@ ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type );
 bool Tropic_setObjectPosition(TropicID engine_id, ObjectID id, vec3 position);
 bool Tropic_setObjectRotation(TropicID engine_id, ObjectID id, vec3 rotation);
 bool Tropic_setObjectScale(TropicID engine_id, ObjectID id, vec3 scale);
+bool Tropic_setObjectCollisionCallback(TropicID engine_id,
+                                       ObjectID id,
+                                       TropicCollisionCallback callback,
+                                       void *user_data);
 
 bool Tropic_getObjectPosition(TropicID engine_id, ObjectID id, vec3 position);
 bool Tropic_getObjectRotation(TropicID engine_id, ObjectID id, vec3 rotation);

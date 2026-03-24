@@ -79,6 +79,10 @@ bool Tropic_configurePhysicsBody( TropicID engine_id,
                                   ObjectID object_id,
                                   bool enabled,
                                   bool is_static );
+bool Tropic_setObjectCollisionCallback( TropicID engine_id,
+                                        ObjectID object_id,
+                                        TropicCollisionCallback callback,
+                                        void *user_data );
 int Tropic_stepPhysics( TropicID engine_id, float delta_time );
 
 // Sets active engine by TropicID. Needs to be an engine global

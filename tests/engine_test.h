@@ -1,6 +1,7 @@
 #ifndef ENGINE_H
 #define ENGINE_H
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,6 +44,18 @@ typedef struct sEngineTestMaterialUniforms
     float neon_amount;
 } EngineTestMaterialUniforms;
 
+typedef struct sEngineTestPlatformCollisionState
+{
+    ObjectID player_id;
+    EngineTestMaterialUniforms *material_uniforms;
+} EngineTestPlatformCollisionState;
+
+typedef struct sEngineTestGravityTriggerState
+{
+    ObjectID player_id;
+    bool triggered;
+} EngineTestGravityTriggerState;
+
 static char keyboard[256] = { 0 };
 static EngineTestMaterialUniforms _cube_material_uniforms = {
     { 0.75f, 0.35f, 0.35f },
@@ -52,6 +65,111 @@ static EngineTestMaterialUniforms _platform_material_uniforms = {
     { 0.35f, 0.75f, 0.45f },
     1.0f,
 };
+static EngineTestPlatformCollisionState _platform_collision_state = { 0 };
+static EngineTestGravityTriggerState _gravity_trigger_state = { 0 };
+
+static float _clampf(float value, float min_value, float max_value)
+{
+    if (value < min_value) return min_value;
+    if (value > max_value) return max_value;
+    return value;
+}
+
+static void _platform_collision_callback(TropicID engine_id,
+    const TropicCollisionEvent* event,
+    void* user_data)
+{
+    EngineTestPlatformCollisionState* state = (EngineTestPlatformCollisionState*)user_data;
+    vec3 gravity;
+    vec3 gravity_dir;
+
+    if (!state || !event || !state->material_uniforms) return;
+    if (event->phase != TROPIC_COLLISION_ENTER || event->other_id != state->player_id) return;
+
+    Tropic_getSceneGravity(engine_id, gravity);
+    if (glm_vec3_norm2(gravity) <= 0.000001f) return;
+
+    glm_vec3_normalize_to(gravity, gravity_dir);
+    if (glm_vec3_dot(gravity_dir, event->normal) <= 0.5f) return;
+
+    state->material_uniforms->neon_amount = _clampf(0.6f + (event->impact_speed * 0.08f),
+                                                    0.6f,
+                                                    3.0f);
+}
+
+static void _gravity_trigger_callback(TropicID engine_id,
+    const TropicCollisionEvent* event,
+    void* user_data)
+{
+    EngineTestGravityTriggerState* state = (EngineTestGravityTriggerState*)user_data;
+
+    if (!state || !event) return;
+    if (state->triggered || event->phase != TROPIC_COLLISION_ENTER || event->other_id != state->player_id) return;
+
+    state->triggered = true;
+    (void)Tropic_invertGravity(engine_id, Tropic_getCurrentSceneID(engine_id));
+}
+
+static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
+{
+    Scene* scene = Tropic_getCurrentScene(engine_id);
+    Object trigger_proto = {
+        .type = TYPE_GENERIC,
+        .pos = { 0.0f, 2.0f, -18.0f },
+        .scale = { 4.0f, 3.0f, 4.0f },
+        .rot = { 0.0f, 0.0f, 0.0f },
+    };
+    ObjectID trigger_id;
+
+    if (!scene) return false;
+
+    _platform_collision_state.player_id = player;
+    _platform_collision_state.material_uniforms = &_platform_material_uniforms;
+    _gravity_trigger_state.player_id = player;
+    _gravity_trigger_state.triggered = false;
+
+    for (size_t i = 0; i < vector_size(scene->entities); ++i)
+    {
+        Object* object = Tropic_getObject(engine_id, scene->entities[i]);
+        if (!object || object->type != TYPE_PLATFORM) continue;
+
+        if (!Tropic_setObjectCollisionCallback(engine_id,
+            object->id,
+            _platform_collision_callback,
+            &_platform_collision_state))
+        {
+            return false;
+        }
+    }
+
+    trigger_id = Tropic_newObject(engine_id, &trigger_proto);
+    if (trigger_id == 0)
+    {
+        return false;
+    }
+
+    if (!Tropic_configureObjectCollider(engine_id,
+        trigger_id,
+        true,
+        trigger_proto.scale,
+        (vec3) {
+        0.0f, 0.0f, 0.0f
+    },
+        TROPIC_COLLIDER_FLAG_TRIGGER))
+    {
+        return false;
+    }
+
+    if (!Tropic_setObjectCollisionCallback(engine_id,
+        trigger_id,
+        _gravity_trigger_callback,
+        &_gravity_trigger_state))
+    {
+        return false;
+    }
+
+    return true;
+}
 
 static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
 {
@@ -184,6 +302,20 @@ static bool _configure_test_scene_rendering(TropicID engine_id,
     }
 
     return true;
+}
+
+static void _update_collision_effects(double delta_time)
+{
+    float fade_amount = (float)(delta_time * 1.75f);
+
+    if (_platform_material_uniforms.neon_amount > 1.0f)
+    {
+        _platform_material_uniforms.neon_amount -= fade_amount;
+        if (_platform_material_uniforms.neon_amount < 1.0f)
+        {
+            _platform_material_uniforms.neon_amount = 1.0f;
+        }
+    }
 }
 
 static bool _init_test_materials(TropicID engine_id, EngineTestRenderResources *resources)

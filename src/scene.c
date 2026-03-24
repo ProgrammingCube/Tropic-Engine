@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+void Tropic_releaseObjectPayload(void *payload);
+
 static bool _Tropic_getAxisAlignedRotationComponent(vec3 axis, int *out_index, float *out_sign);
 static void _Tropic_rotatePointAroundPivot(vec3 point,
                                            vec3 pivot,
@@ -282,7 +284,7 @@ static void _Scene_free( Scene* scene )
     if ( !scene ) return;
 
     if ( scene->objects_manager ) {
-        idmgr_free_all( scene->objects_manager, free );
+        idmgr_free_all( scene->objects_manager, Tropic_releaseObjectPayload );
         scene->objects_manager = NULL;
     }
     if ( scene->meshes_manager ) {

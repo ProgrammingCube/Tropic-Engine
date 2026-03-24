@@ -107,6 +107,12 @@ int main(int argc, char* argv[])
         goto cleanup;
     }
 
+    if (!_setup_test_collision_callbacks(tropicEngine, player))
+    {
+        fprintf(stderr, "Failed to configure collision callbacks.\n");
+        goto cleanup;
+    }
+
     if (!_configure_test_object_rendering(tropicEngine, player, &render_resources))
     {
         fprintf(stderr, "Failed to configure player rendering.\n");
@@ -164,6 +170,7 @@ int main(int argc, char* argv[])
         }
 
         _update_play_speed(tropicEngine, delta_time, &loop_state.speed_adjust_timer);
+        _update_collision_effects(delta_time);
 
         if (!loop_state.paused && jump_requested)
         {

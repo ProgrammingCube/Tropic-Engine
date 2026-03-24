@@ -4,6 +4,23 @@
 
 #include <math.h>
 
+void Tropic_releaseObjectPayload(void *payload)
+{
+    Object *object = (Object*)payload;
+    if (!object) return;
+
+    if (object->current_collision_ids) {
+        vector_free(object->current_collision_ids);
+        object->current_collision_ids = NULL;
+    }
+    if (object->previous_collision_ids) {
+        vector_free(object->previous_collision_ids);
+        object->previous_collision_ids = NULL;
+    }
+
+    free(object);
+}
+
 static void _Tropic_setDefaultColliderHalfExtents(Object *object)
 {
     if (!object) return;
@@ -25,6 +42,9 @@ ObjectID Tropic_newObject( TropicID engine, const Object* proto)
     else memset(o, 0, sizeof(Object));
 
     /* ensure sensible defaults */
+    o->current_collision_ids = NULL;
+    o->previous_collision_ids = NULL;
+
     if (o->type == 0) o->type = TYPE_GENERIC;
     o->active = true;
 
@@ -91,7 +111,7 @@ bool Tropic_freeObject( TropicID engine, ObjectID id)
     Object *o = (Object*)idmgr_get(scene->objects_manager, local_id);
     if (!o) return false;
     bool ok = idmgr_free(scene->objects_manager, local_id);
-    if (ok) free(o);
+    if (ok) Tropic_releaseObjectPayload(o);
     return ok;
 }
 
@@ -148,6 +168,18 @@ bool Tropic_setObjectScale( TropicID engine_id, ObjectID id, vec3 scale )
     if (!o) return false;
     glm_vec3_copy(scale, o->scale);
     _Tropic_setDefaultColliderHalfExtents(o);
+    return true;
+}
+
+bool Tropic_setObjectCollisionCallback(TropicID engine_id,
+                                       ObjectID id,
+                                       TropicCollisionCallback callback,
+                                       void *user_data)
+{
+    Object *o = Tropic_getObject(engine_id, id);
+    if (!o) return false;
+    o->collision_callback = callback;
+    o->collision_user_data = user_data;
     return true;
 }
 
