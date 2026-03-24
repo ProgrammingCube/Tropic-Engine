@@ -98,13 +98,26 @@ static void _Tropic_estimateContactNormal(const Object *self, const Object *othe
     out_normal[axis] = self_center[axis] >= other_center[axis] ? 1.0f : -1.0f;
 }
 
+static float _Tropic_estimateImpactSpeed(const Object *self, const Object *other)
+{
+    vec3 self_velocity;
+    vec3 other_velocity;
+    vec3 relative_velocity;
+    vec3 normal;
+
+    if (!self || !other) return 0.0f;
+
+    _Tropic_getBodyVelocity(self, self_velocity);
+    _Tropic_getBodyVelocity(other, other_velocity);
+    _Tropic_estimateContactNormal(self, other, normal);
+    glm_vec3_sub(self_velocity, other_velocity, relative_velocity);
+    return fabsf(glm_vec3_dot(relative_velocity, normal));
+}
+
 static void _Tropic_dispatchCollisionCallback(TropicID engine_id,
                                               Object *self,
                                               Object *other,
-                                              TropicCollisionPhase phase,
-                                              vec3 normal,
-                                              vec3 self_velocity,
-                                              vec3 other_velocity)
+                                              TropicCollisionPhase phase)
 {
     TropicCollisionEvent event = {0};
 
@@ -113,29 +126,18 @@ static void _Tropic_dispatchCollisionCallback(TropicID engine_id,
     event.self_id = self->id;
     event.other_id = other->id;
     event.phase = phase;
-    event.self_flags = self->collider.flags;
-    event.other_flags = other->collider.flags;
-    event.is_trigger = ((self->collider.flags | other->collider.flags) & TROPIC_COLLIDER_FLAG_TRIGGER) != 0u;
-    event.is_solid_contact = ((self->collider.flags & TROPIC_COLLIDER_FLAG_SOLID) != 0u) &&
-                             ((other->collider.flags & TROPIC_COLLIDER_FLAG_SOLID) != 0u);
-    glm_vec3_copy(normal, event.normal);
-    glm_vec3_sub(self_velocity, other_velocity, event.relative_velocity);
-    event.impact_speed = fabsf(glm_vec3_dot(event.relative_velocity, event.normal));
+    event.impact_speed = phase == TROPIC_COLLISION_EXIT ? 0.0f : _Tropic_estimateImpactSpeed(self, other);
 
     self->collision_callback(engine_id, &event, self->collision_user_data);
 }
 
 static bool _Tropic_recordCollisionPair(TropicID engine_id,
                                         Object *first,
-                                        Object *second,
-                                        vec3 normal_for_first,
-                                        vec3 first_velocity,
-                                        vec3 second_velocity)
+                                        Object *second)
 {
     bool already_recorded;
     bool first_had_previous;
     bool second_had_previous;
-    vec3 normal_for_second;
 
     if (!first || !second) return false;
 
@@ -146,22 +148,15 @@ static bool _Tropic_recordCollisionPair(TropicID engine_id,
 
     first_had_previous = _Tropic_contactListContains(first->previous_collision_ids, second->id);
     second_had_previous = _Tropic_contactListContains(second->previous_collision_ids, first->id);
-    glm_vec3_negate_to(normal_for_first, normal_for_second);
 
     _Tropic_dispatchCollisionCallback(engine_id,
                                       first,
                                       second,
-                                      first_had_previous ? TROPIC_COLLISION_STAY : TROPIC_COLLISION_ENTER,
-                                      normal_for_first,
-                                      first_velocity,
-                                      second_velocity);
+                                      first_had_previous ? TROPIC_COLLISION_STAY : TROPIC_COLLISION_ENTER);
     _Tropic_dispatchCollisionCallback(engine_id,
                                       second,
                                       first,
-                                      second_had_previous ? TROPIC_COLLISION_STAY : TROPIC_COLLISION_ENTER,
-                                      normal_for_second,
-                                      second_velocity,
-                                      first_velocity);
+                                      second_had_previous ? TROPIC_COLLISION_STAY : TROPIC_COLLISION_ENTER);
     return true;
 }
 
@@ -177,25 +172,16 @@ static void _Tropic_dispatchCollisionExits(TropicID engine_id, Scene *scene)
         for (size_t j = 0; j < vector_size(object->previous_collision_ids); ++j) {
             ObjectID other_id = object->previous_collision_ids[j];
             Object *other;
-            vec3 normal;
-            vec3 object_velocity;
-            vec3 other_velocity;
 
             if (_Tropic_contactListContains(object->current_collision_ids, other_id)) continue;
 
             other = Tropic_getObject(engine_id, other_id);
             if (!other || !other->active) continue;
 
-            _Tropic_getBodyVelocity(object, object_velocity);
-            _Tropic_getBodyVelocity(other, other_velocity);
-            _Tropic_estimateContactNormal(object, other, normal);
             _Tropic_dispatchCollisionCallback(engine_id,
                                               object,
                                               other,
-                                              TROPIC_COLLISION_EXIT,
-                                              normal,
-                                              object_velocity,
-                                              other_velocity);
+                                              TROPIC_COLLISION_EXIT);
         }
     }
 }
@@ -410,7 +396,6 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
 
     for (size_t i = 0; i < vector_size(scene->entities); i++) {
         Object *object = Tropic_getObject(engine_id, scene->entities[i]);
-        vec3 sweep_velocity;
         if (!object || !object->active || !object->body.enabled || object->body.is_static) continue;
 
         object->body.is_grounded = false;
@@ -420,7 +405,6 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
         object->body.velocity[0] += gravity[0] * delta_time;
         object->body.velocity[1] += gravity[1] * delta_time;
         object->body.velocity[2] += gravity[2] * delta_time;
-        glm_vec3_copy(object->body.velocity, sweep_velocity);
 
         for (int axis = 0; axis < 3; axis++) {
             float axis_delta = object->body.velocity[axis] * delta_time;
@@ -435,7 +419,6 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
                 vec3 other_min;
                 vec3 other_max;
                 vec3 normal = { 0.0f, 0.0f, 0.0f };
-                vec3 other_velocity;
                 float correction;
                 bool pair_owner;
 
@@ -443,7 +426,6 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
                 if (!_Tropic_objectsOverlap(object, other)) continue;
 
                 object->body.last_contact_object_id = other->id;
-                _Tropic_getBodyVelocity(other, other_velocity);
                 pair_owner = !other->body.enabled || other->body.is_static || object->id < other->id;
 
                 if ((other->collider.flags & TROPIC_COLLIDER_FLAG_SOLID) == 0u) continue;
@@ -461,10 +443,7 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
 
                 if (pair_owner && _Tropic_recordCollisionPair(engine_id,
                                                               object,
-                                                              other,
-                                                              normal,
-                                                              sweep_velocity,
-                                                              other_velocity)) {
+                                                              other)) {
                     contacts++;
                 }
 
@@ -480,8 +459,6 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
 
         for (size_t j = 0; j < vector_size(scene->entities); j++) {
             Object *other = Tropic_getObject(engine_id, scene->entities[j]);
-            vec3 normal;
-            vec3 other_velocity;
             bool pair_owner;
             if (!other || other == object || !other->active || !other->collider.enabled) continue;
             if (_Tropic_objectsOverlap(object, other)) {
@@ -489,14 +466,9 @@ int Tropic_stepPhysics(TropicID engine_id, float delta_time)
                 pair_owner = !other->body.enabled || other->body.is_static || object->id < other->id;
                 if (!pair_owner) continue;
 
-                _Tropic_estimateContactNormal(object, other, normal);
-                _Tropic_getBodyVelocity(other, other_velocity);
                 if (_Tropic_recordCollisionPair(engine_id,
                                                object,
-                                               other,
-                                               normal,
-                                               sweep_velocity,
-                                               other_velocity)) {
+                                               other)) {
                     contacts++;
                 }
             }

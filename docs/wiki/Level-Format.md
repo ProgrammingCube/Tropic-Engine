@@ -11,6 +11,13 @@ Current reference parser: `tests/level_loader.c`.
 - `platforms` (array)
 - `spikes` (array)
 - `jumppads` (array)
+- `events` (array, optional)
+
+## Parser behavior
+
+- Missing top-level arrays such as `events` are allowed.
+- The reference parser also strips `// line comments` and `/* block comments */` before parsing.
+- Trailing commas left behind by commented-out entries are ignored when they appear before `]` or `}`.
 
 ## Object fields
 
@@ -29,6 +36,7 @@ Each object may provide:
 - `platform` -> `TYPE_PLATFORM`
 - `spike` -> `TYPE_SPIKE`
 - `jumppad` -> `TYPE_JUMPPAD`
+- `event` -> `TYPE_EVENT`
 - unknown -> `TYPE_GENERIC`
 
 ## Runtime flow

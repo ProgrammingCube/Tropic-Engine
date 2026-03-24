@@ -17,6 +17,8 @@ typedef struct sLevelSpec
     ObjectSpec *spikes;
     size_t jumppads_count;
     ObjectSpec *jumppads;
+    size_t events_count;
+    ObjectSpec *events;
 } LevelSpec;
 
 LevelSpec* parseLevel(const char* path, int* out_num_objects);

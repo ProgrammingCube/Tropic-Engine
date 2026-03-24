@@ -34,14 +34,18 @@ typedef struct sEngineTestRenderResources
 {
     MeshID cube_mesh;
     ShaderID volume_shader;
+    ShaderID player_shader;
     MaterialID cube_material;
     MaterialID platform_material;
+    MaterialID ghost_material;
 } EngineTestRenderResources;
 
 typedef struct sEngineTestMaterialUniforms
 {
     vec3 color;
     float neon_amount;
+    float brightness_scale;
+    float alpha_scale;
 } EngineTestMaterialUniforms;
 
 typedef struct sEngineTestPlatformCollisionState
@@ -56,17 +60,43 @@ typedef struct sEngineTestGravityTriggerState
     bool triggered;
 } EngineTestGravityTriggerState;
 
+#define ENGINE_TEST_GHOST_COUNT 8
+#define ENGINE_TEST_GHOST_SAMPLE_COUNT 48
+#define ENGINE_TEST_GHOST_SAMPLE_STRIDE 4
+
+typedef struct sEngineTestPlayerTrailState
+{
+    ObjectID player_id;
+    ObjectID ghost_ids[ENGINE_TEST_GHOST_COUNT];
+    vec3 samples[ENGINE_TEST_GHOST_SAMPLE_COUNT];
+    vec3 last_sample_position;
+    size_t sample_head;
+    bool initialized;
+    bool has_last_sample_position;
+} EngineTestPlayerTrailState;
+
 static char keyboard[256] = { 0 };
 static EngineTestMaterialUniforms _cube_material_uniforms = {
-    { 0.75f, 0.35f, 0.35f },
-    0.0f,
+    { 0.10f, 0.55f, 1.00f },
+    1.0f,
+    1.75f,
+    2.80f,
+};
+static EngineTestMaterialUniforms _ghost_material_uniforms = {
+    { 0.08f, 0.42f, 0.95f },
+    0.24f,
+    0.28f,
+    0.14f,
 };
 static EngineTestMaterialUniforms _platform_material_uniforms = {
     { 0.35f, 0.75f, 0.45f },
     1.0f,
+    1.0f,
+    1.0f,
 };
 static EngineTestPlatformCollisionState _platform_collision_state = { 0 };
 static EngineTestGravityTriggerState _gravity_trigger_state = { 0 };
+static EngineTestPlayerTrailState _player_trail_state = { 0 };
 
 static float _clampf(float value, float min_value, float max_value)
 {
@@ -80,17 +110,10 @@ static void _platform_collision_callback(TropicID engine_id,
     void* user_data)
 {
     EngineTestPlatformCollisionState* state = (EngineTestPlatformCollisionState*)user_data;
-    vec3 gravity;
-    vec3 gravity_dir;
+    (void)engine_id;
 
     if (!state || !event || !state->material_uniforms) return;
     if (event->phase != TROPIC_COLLISION_ENTER || event->other_id != state->player_id) return;
-
-    Tropic_getSceneGravity(engine_id, gravity);
-    if (glm_vec3_norm2(gravity) <= 0.000001f) return;
-
-    glm_vec3_normalize_to(gravity, gravity_dir);
-    if (glm_vec3_dot(gravity_dir, event->normal) <= 0.5f) return;
 
     state->material_uniforms->neon_amount = _clampf(0.6f + (event->impact_speed * 0.08f),
                                                     0.6f,
@@ -113,13 +136,6 @@ static void _gravity_trigger_callback(TropicID engine_id,
 static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
 {
     Scene* scene = Tropic_getCurrentScene(engine_id);
-    Object trigger_proto = {
-        .type = TYPE_GENERIC,
-        .pos = { 0.0f, 2.0f, -18.0f },
-        .scale = { 4.0f, 3.0f, 4.0f },
-        .rot = { 0.0f, 0.0f, 0.0f },
-    };
-    ObjectID trigger_id;
 
     if (!scene) return false;
 
@@ -131,41 +147,29 @@ static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
     for (size_t i = 0; i < vector_size(scene->entities); ++i)
     {
         Object* object = Tropic_getObject(engine_id, scene->entities[i]);
-        if (!object || object->type != TYPE_PLATFORM) continue;
+        if (!object) continue;
 
-        if (!Tropic_setObjectCollisionCallback(engine_id,
-            object->id,
-            _platform_collision_callback,
-            &_platform_collision_state))
+        if (object->type == TYPE_PLATFORM)
         {
-            return false;
+            if (!Tropic_setObjectCollisionCallback(engine_id,
+                object->id,
+                _platform_collision_callback,
+                &_platform_collision_state))
+            {
+                return false;
+            }
         }
-    }
 
-    trigger_id = Tropic_newObject(engine_id, &trigger_proto);
-    if (trigger_id == 0)
-    {
-        return false;
-    }
-
-    if (!Tropic_configureObjectCollider(engine_id,
-        trigger_id,
-        true,
-        trigger_proto.scale,
-        (vec3) {
-        0.0f, 0.0f, 0.0f
-    },
-        TROPIC_COLLIDER_FLAG_TRIGGER))
-    {
-        return false;
-    }
-
-    if (!Tropic_setObjectCollisionCallback(engine_id,
-        trigger_id,
-        _gravity_trigger_callback,
-        &_gravity_trigger_state))
-    {
-        return false;
+        if (object->type == TYPE_EVENT)
+        {
+            if (!Tropic_setObjectCollisionCallback(engine_id,
+                object->id,
+                _gravity_trigger_callback,
+                &_gravity_trigger_state))
+            {
+                return false;
+            }
+        }
     }
 
     return true;
@@ -223,6 +227,28 @@ static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
                                                  out_shader);
 }
 
+static bool _load_test_player_shader(TropicID engine_id, ShaderID *out_shader)
+{
+    static const char *vertex_candidates[] = {
+        "assets/shaders/player_volume_ripple_round_soft.vert",
+        "../assets/shaders/player_volume_ripple_round_soft.vert",
+        "../../assets/shaders/player_volume_ripple_round_soft.vert",
+    };
+    static const char *fragment_candidates[] = {
+        "assets/shaders/player_volume_ripple_round_soft.frag",
+        "../assets/shaders/player_volume_ripple_round_soft.frag",
+        "../../assets/shaders/player_volume_ripple_round_soft.frag",
+    };
+
+    if (!out_shader) return false;
+
+    return Tropic_createShaderFromFileCandidates(engine_id,
+                                                 vertex_candidates,
+                                                 fragment_candidates,
+                                                 sizeof(vertex_candidates) / sizeof(vertex_candidates[0]),
+                                                 out_shader);
+}
+
 static void _test_object_render_callback(TropicID engine_id,
     Scene *scene,
     Object *object,
@@ -234,6 +260,8 @@ static void _test_object_render_callback(TropicID engine_id,
     vec3 object_color = { 0.65f, 0.65f, 0.65f };
     vec3 ambient_color = { 0.2f, 0.2f, 0.2f };
     float neon_amount = 0.0f;
+    float brightness_scale = 1.0f;
+    float alpha_scale = 1.0f;
     EngineTestMaterialUniforms *material_uniforms;
 
     (void)camera;
@@ -250,11 +278,15 @@ static void _test_object_render_callback(TropicID engine_id,
 
     glm_vec3_copy(material_uniforms->color, object_color);
     neon_amount = material_uniforms->neon_amount;
+    brightness_scale = material_uniforms->brightness_scale;
+    alpha_scale = material_uniforms->alpha_scale;
 
     (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "lightPos", light_pos);
     (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "objectColor", object_color);
     (void)Tropic_setShaderUniformVec3(engine_id, shader_id, "ambientColor", ambient_color);
     (void)Tropic_setShaderUniformFloat(engine_id, shader_id, "neonAmount", neon_amount);
+    (void)Tropic_setShaderUniformFloat(engine_id, shader_id, "brightnessScale", brightness_scale);
+    (void)Tropic_setShaderUniformFloat(engine_id, shader_id, "alphaScale", alpha_scale);
 }
 
 static bool _configure_test_object_rendering(TropicID engine_id,
@@ -321,10 +353,11 @@ static void _update_collision_effects(double delta_time)
 static bool _init_test_materials(TropicID engine_id, EngineTestRenderResources *resources)
 {
     if (!resources) return false;
+    if (resources->cube_mesh == 0 || resources->volume_shader == 0 || resources->player_shader == 0) return false;
 
     resources->cube_material = Tropic_createMaterial(engine_id,
                                                      resources->cube_mesh,
-                                                     resources->volume_shader,
+                                                     resources->player_shader,
                                                      _test_object_render_callback,
                                                      &_cube_material_uniforms);
     if (resources->cube_material == 0) return false;
@@ -336,7 +369,91 @@ static bool _init_test_materials(TropicID engine_id, EngineTestRenderResources *
                                                          &_platform_material_uniforms);
     if (resources->platform_material == 0) return false;
 
+    resources->ghost_material = Tropic_createMaterial(engine_id,
+                                                      resources->cube_mesh,
+                                                      resources->player_shader,
+                                                      _test_object_render_callback,
+                                                      &_ghost_material_uniforms);
+    if (resources->ghost_material == 0) return false;
+
     return true;
+}
+
+static bool _initialize_player_trail(TropicID engine_id,
+    ObjectID player_id,
+    const EngineTestRenderResources* resources)
+{
+    Object* player_object = Tropic_getObject(engine_id, player_id);
+
+    if (!player_object || !resources || resources->ghost_material == 0) return false;
+
+    _player_trail_state.player_id = player_id;
+    _player_trail_state.sample_head = 0;
+    _player_trail_state.initialized = true;
+    _player_trail_state.has_last_sample_position = true;
+    glm_vec3_copy(player_object->pos, _player_trail_state.last_sample_position);
+
+    for (size_t i = 0; i < ENGINE_TEST_GHOST_SAMPLE_COUNT; ++i)
+    {
+        glm_vec3_copy(player_object->pos, _player_trail_state.samples[i]);
+    }
+
+    for (size_t i = 0; i < ENGINE_TEST_GHOST_COUNT; ++i)
+    {
+        Object ghost_proto = {
+            .type = TYPE_GENERIC,
+            .rot = { 0.0f, 0.0f, 0.0f },
+        };
+        ObjectID ghost_id;
+        float scale_factor = 0.90f - ((float)i * 0.07f);
+
+        glm_vec3_copy(player_object->pos, ghost_proto.pos);
+        glm_vec3_scale(player_object->scale, scale_factor, ghost_proto.scale);
+        glm_vec3_copy(player_object->rot, ghost_proto.rot);
+
+        ghost_id = Tropic_newObject(engine_id, &ghost_proto);
+        if (ghost_id == 0) return false;
+        if (!Tropic_setObjectMaterial(engine_id, ghost_id, resources->ghost_material)) return false;
+
+        _player_trail_state.ghost_ids[i] = ghost_id;
+    }
+
+    return true;
+}
+
+static void _update_player_trail(TropicID engine_id)
+{
+    Object* player_object;
+    vec3 delta;
+
+    if (!_player_trail_state.initialized || _player_trail_state.player_id == 0) return;
+
+    player_object = Tropic_getObject(engine_id, _player_trail_state.player_id);
+    if (!player_object) return;
+
+    if (!_player_trail_state.has_last_sample_position)
+    {
+        glm_vec3_copy(player_object->pos, _player_trail_state.last_sample_position);
+        _player_trail_state.has_last_sample_position = true;
+    }
+
+    glm_vec3_sub(player_object->pos, _player_trail_state.last_sample_position, delta);
+    if (glm_vec3_norm2(delta) >= (0.22f * 0.22f))
+    {
+        glm_vec3_copy(player_object->pos, _player_trail_state.samples[_player_trail_state.sample_head]);
+        glm_vec3_copy(player_object->pos, _player_trail_state.last_sample_position);
+        _player_trail_state.sample_head = (_player_trail_state.sample_head + 1u) % ENGINE_TEST_GHOST_SAMPLE_COUNT;
+    }
+
+    for (size_t i = 0; i < ENGINE_TEST_GHOST_COUNT; ++i)
+    {
+        size_t sample_index = (_player_trail_state.sample_head + ENGINE_TEST_GHOST_SAMPLE_COUNT - 1u - ((i + 1u) * ENGINE_TEST_GHOST_SAMPLE_STRIDE)) % ENGINE_TEST_GHOST_SAMPLE_COUNT;
+        ObjectID ghost_id = _player_trail_state.ghost_ids[i];
+        if (ghost_id != 0)
+        {
+            (void)Tropic_setObjectPosition(engine_id, ghost_id, _player_trail_state.samples[sample_index]);
+        }
+    }
 }
 
 static void _set_lateral_velocity(Object* object,
@@ -591,6 +708,11 @@ static bool _step_player_controller(TropicID engine_id,
         {
             fprintf(stderr, "Failed to build control basis.\n");
             return false;
+        }
+
+        if (glm_vec3_dot(right, (vec3) { 1.0f, 0.0f, 0.0f }) < 0.0f)
+        {
+            glm_vec3_negate(right);
         }
 
         glm_vec3_scale(forward, config->forward_speed * time_scale, desired_velocity);

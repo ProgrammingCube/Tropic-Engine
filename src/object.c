@@ -74,6 +74,10 @@ ObjectID Tropic_newObject( TropicID engine, const Object* proto)
         o->collider.enabled = true;
         o->collider.flags |= TROPIC_COLLIDER_FLAG_TRIGGER;
         break;
+    case TYPE_EVENT:
+        o->collider.enabled = true;
+        o->collider.flags |= TROPIC_COLLIDER_FLAG_TRIGGER;
+        break;
     default:
         break;
     }

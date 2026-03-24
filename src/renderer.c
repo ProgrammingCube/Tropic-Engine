@@ -4,6 +4,114 @@
 #include <cglm/cglm.h>
 #include <vector.h>
 
+static void _Renderer_overlayFillRect(int x, int y, int width, int height, float r, float g, float b)
+{
+    if (width <= 0 || height <= 0) return;
+
+    glScissor(x, y, width, height);
+    glClearColor(r, g, b, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+static void _Renderer_overlayDrawDigit(int x, int y, int scale, int digit, float r, float g, float b)
+{
+    static const unsigned char digit_segments[10] = {
+        0x3F, 0x06, 0x5B, 0x4F, 0x66,
+        0x6D, 0x7D, 0x07, 0x7F, 0x6F,
+    };
+    int thickness = scale;
+    int length = scale * 4;
+    int inner_height = scale * 5;
+    unsigned char mask;
+
+    if (digit < 0 || digit > 9) return;
+
+    mask = digit_segments[digit];
+
+    if ((mask & 0x01u) != 0u) _Renderer_overlayFillRect(x + thickness, y + inner_height * 2 + thickness * 2, length, thickness, r, g, b);
+    if ((mask & 0x02u) != 0u) _Renderer_overlayFillRect(x + length + thickness, y + inner_height + thickness, thickness, inner_height, r, g, b);
+    if ((mask & 0x04u) != 0u) _Renderer_overlayFillRect(x + length + thickness, y, thickness, inner_height, r, g, b);
+    if ((mask & 0x08u) != 0u) _Renderer_overlayFillRect(x + thickness, y - thickness, length, thickness, r, g, b);
+    if ((mask & 0x10u) != 0u) _Renderer_overlayFillRect(x, y, thickness, inner_height, r, g, b);
+    if ((mask & 0x20u) != 0u) _Renderer_overlayFillRect(x, y + inner_height + thickness, thickness, inner_height, r, g, b);
+    if ((mask & 0x40u) != 0u) _Renderer_overlayFillRect(x + thickness, y + inner_height, length, thickness, r, g, b);
+}
+
+static void _Renderer_drawFpsOverlay(TropicID engine_id, Tropic *self)
+{
+    double now;
+    int framebuffer_width = 0;
+    int framebuffer_height = 0;
+    int margin = 12;
+    int scale = 4;
+    int digit_width = scale * 6;
+    int digit_height = scale * 12;
+    int spacing = scale * 2;
+    int box_width = digit_width * 3 + spacing * 4;
+    int box_height = digit_height + spacing * 2;
+    int origin_x;
+    int origin_y;
+    int fps;
+    int hundreds;
+    int tens;
+    int ones;
+
+    if (!self || !self->window || !self->fps_overlay_enabled) return;
+
+    now = Tropic_getTime();
+    if (!self->fps_overlay_initialized) {
+        self->fps_overlay_sample_start_time = now;
+        self->fps_overlay_displayed_fps = 0;
+        self->fps_overlay_frame_count = 0;
+        self->fps_overlay_initialized = true;
+    }
+
+    self->fps_overlay_frame_count++;
+    if ((now - self->fps_overlay_sample_start_time) >= 0.25) {
+        double elapsed = now - self->fps_overlay_sample_start_time;
+        if (elapsed > 0.0) {
+            self->fps_overlay_displayed_fps = (int)((double)self->fps_overlay_frame_count / elapsed + 0.5);
+        }
+        self->fps_overlay_frame_count = 0;
+        self->fps_overlay_sample_start_time = now;
+    }
+
+    glfwGetFramebufferSize(self->window, &framebuffer_width, &framebuffer_height);
+    origin_x = margin;
+    origin_y = framebuffer_height - margin - box_height + spacing + scale;
+
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_SCISSOR_TEST);
+
+    _Renderer_overlayFillRect(origin_x,
+                              framebuffer_height - margin - box_height,
+                              box_width,
+                              box_height,
+                              0.02f,
+                              0.03f,
+                              0.06f);
+
+    fps = self->fps_overlay_displayed_fps;
+    if (fps < 0) fps = 0;
+    if (fps > 999) fps = 999;
+
+    hundreds = (fps / 100) % 10;
+    tens = (fps / 10) % 10;
+    ones = fps % 10;
+
+    if (fps >= 100) {
+        _Renderer_overlayDrawDigit(origin_x + spacing, origin_y, scale, hundreds, 0.20f, 0.85f, 1.00f);
+    }
+    if (fps >= 10) {
+        _Renderer_overlayDrawDigit(origin_x + spacing * 2 + digit_width, origin_y, scale, tens, 0.20f, 0.85f, 1.00f);
+    }
+    _Renderer_overlayDrawDigit(origin_x + spacing * 3 + digit_width * 2, origin_y, scale, ones, 0.20f, 0.85f, 1.00f);
+
+    glDisable(GL_SCISSOR_TEST);
+    glEnable(GL_DEPTH_TEST);
+    (void)engine_id;
+}
+
 static void _Renderer_clearFrame(Tropic *self, Scene *scene)
 {
     if (!self) return;
@@ -139,6 +247,8 @@ void Tropic_Render( TropicID engine_id )
         Object *object = Tropic_getObject(engine_id, scene->entities[i]);
         _Renderer_drawObject(engine_id, scene, object, camera, view, projection);
     }
+
+    _Renderer_drawFpsOverlay(engine_id, self);
 
     glBindVertexArray(0);
     glUseProgram(0);

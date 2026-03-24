@@ -10,6 +10,7 @@ static ObjectType string_to_type(const char* s)
     if (strcmp(s, "platform") == 0) return TYPE_PLATFORM;
     if (strcmp(s, "spike") == 0) return TYPE_SPIKE;
     if (strcmp(s, "jumppad") == 0) return TYPE_JUMPPAD;
+    if (strcmp(s, "event") == 0) return TYPE_EVENT;
     if (strcmp(s, "cube") == 0) return TYPE_CUBE;
     if (strcmp(s, "square") == 0) return TYPE_SQUARE;
     if (strcmp(s, "mesh") == 0) return TYPE_MESH;
@@ -36,21 +37,130 @@ static char* raw_json_to_str(const char* file_name)
     return tmp_buffer;
 }
 
+static char* sanitize_json_source(const char* raw)
+{
+    size_t length;
+    char* without_comments;
+    char* sanitized;
+    size_t write_index = 0;
+    bool in_string = false;
+    bool escape = false;
+    bool in_line_comment = false;
+    bool in_block_comment = false;
+
+    if (!raw) return NULL;
+
+    length = strlen(raw);
+    without_comments = (char*)malloc(length + 1);
+    if (!without_comments) return NULL;
+
+    for (size_t i = 0; i < length; ++i) {
+        char ch = raw[i];
+        char next = (i + 1 < length) ? raw[i + 1] : '\0';
+
+        if (in_line_comment) {
+            if (ch == '\n') {
+                in_line_comment = false;
+                without_comments[write_index++] = ch;
+            }
+            continue;
+        }
+
+        if (in_block_comment) {
+            if (ch == '*' && next == '/') {
+                in_block_comment = false;
+                ++i;
+            }
+            continue;
+        }
+
+        if (!in_string && ch == '/' && next == '/') {
+            in_line_comment = true;
+            ++i;
+            continue;
+        }
+
+        if (!in_string && ch == '/' && next == '*') {
+            in_block_comment = true;
+            ++i;
+            continue;
+        }
+
+        without_comments[write_index++] = ch;
+
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+        } else if (ch == '"') {
+            in_string = true;
+        }
+    }
+    without_comments[write_index] = '\0';
+
+    sanitized = (char*)malloc(write_index + 1);
+    if (!sanitized) {
+        free(without_comments);
+        return NULL;
+    }
+
+    in_string = false;
+    escape = false;
+    write_index = 0;
+    for (size_t i = 0; without_comments[i] != '\0'; ++i) {
+        char ch = without_comments[i];
+
+        if (!in_string && ch == ',') {
+            size_t j = i + 1;
+            while (without_comments[j] == ' ' || without_comments[j] == '\t' ||
+                   without_comments[j] == '\r' || without_comments[j] == '\n') {
+                ++j;
+            }
+            if (without_comments[j] == ']' || without_comments[j] == '}') {
+                continue;
+            }
+        }
+
+        sanitized[write_index++] = ch;
+
+        if (in_string) {
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+        } else if (ch == '"') {
+            in_string = true;
+        }
+    }
+    sanitized[write_index] = '\0';
+
+    free(without_comments);
+    return sanitized;
+}
+
 LevelSpec* parseLevel(const char* path, int* out_num_objects)
 {
-    (void)out_num_objects; // Unused for now, but could be set to total objects parsed if needed
     char *raw = raw_json_to_str( path );
+    char *sanitized = NULL;
     if ( !raw ) return NULL;
 
-    cJSON *json = cJSON_Parse(raw);
+    sanitized = sanitize_json_source(raw);
     free(raw);
+    if (!sanitized) return NULL;
+
+    cJSON *json = cJSON_Parse(sanitized);
+    free(sanitized);
     if (!json) return NULL;
 
-    LevelSpec *spec = (LevelSpec*)malloc(sizeof(LevelSpec));
+    LevelSpec *spec = (LevelSpec*)calloc(1, sizeof(LevelSpec));
     if (!spec) { cJSON_Delete(json); return NULL; }
-    spec->game_title = NULL;
-    spec->level_name = NULL;
-    spec->play_speed = 0.0;
 
     cJSON *metadata = cJSON_GetObjectItemCaseSensitive(json, "metadata");
     if (metadata) {
@@ -71,7 +181,7 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
     cJSON *platforms = cJSON_GetObjectItemCaseSensitive(json, "platforms");
     if (platforms && cJSON_IsArray(platforms)) {
         spec->platform_count = cJSON_GetArraySize(platforms);
-        spec->platforms = (ObjectSpec*)malloc(spec->platform_count * sizeof(ObjectSpec));
+        spec->platforms = (ObjectSpec*)calloc(spec->platform_count, sizeof(ObjectSpec));
         if (!spec->platforms) {
             level_free(spec);
             cJSON_Delete(json);
@@ -139,7 +249,7 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
     cJSON *spikes = cJSON_GetObjectItemCaseSensitive(json, "spikes");
     if (spikes && cJSON_IsArray(spikes)) {
         spec->spikes_count = cJSON_GetArraySize(spikes);
-        spec->spikes = (ObjectSpec*)malloc(spec->spikes_count * sizeof(ObjectSpec));
+        spec->spikes = (ObjectSpec*)calloc(spec->spikes_count, sizeof(ObjectSpec));
         if (!spec->spikes) {
             level_free(spec);
             cJSON_Delete(json);
@@ -188,7 +298,7 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
     cJSON *jumppads = cJSON_GetObjectItemCaseSensitive(json, "jumppads");
     if (jumppads && cJSON_IsArray(jumppads)) {
         spec->jumppads_count = cJSON_GetArraySize(jumppads);
-        spec->jumppads = (ObjectSpec*)malloc(spec->jumppads_count * sizeof(ObjectSpec));
+        spec->jumppads = (ObjectSpec*)calloc(spec->jumppads_count, sizeof(ObjectSpec));
         if (!spec->jumppads) {
             level_free(spec);
             cJSON_Delete(json);
@@ -233,6 +343,59 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
         spec->jumppads = NULL;
     }
 
+    cJSON *events = cJSON_GetObjectItemCaseSensitive(json, "events");
+    if (events && cJSON_IsArray(events)) {
+        spec->events_count = cJSON_GetArraySize(events);
+        spec->events = (ObjectSpec*)calloc(spec->events_count, sizeof(ObjectSpec));
+        if (!spec->events) {
+            level_free(spec);
+            cJSON_Delete(json);
+            return NULL;
+        }
+        for (size_t i = 0; i < spec->events_count; i++) {
+            cJSON *obj = cJSON_GetArrayItem(events, i);
+            if (!obj) continue;
+            cJSON *pos = cJSON_GetObjectItemCaseSensitive(obj, "pos");
+            if (!pos) pos = cJSON_GetObjectItemCaseSensitive(obj, "position");
+            cJSON *scale = cJSON_GetObjectItemCaseSensitive(obj, "scale");
+            cJSON *rot = cJSON_GetObjectItemCaseSensitive(obj, "rot");
+            if (!rot) rot = cJSON_GetObjectItemCaseSensitive(obj, "rotation");
+
+            strncpy(spec->events[i].type, "event", sizeof(spec->events[i].type));
+            spec->events[i].type[sizeof(spec->events[i].type) - 1] = '\0';
+
+            cJSON *tmp = NULL;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "x") : NULL;
+            spec->events[i].position[0] = tmp ? tmp->valuedouble : 0.0;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "y") : NULL;
+            spec->events[i].position[1] = tmp ? tmp->valuedouble : 0.0;
+            tmp = pos ? cJSON_GetObjectItemCaseSensitive(pos, "z") : NULL;
+            spec->events[i].position[2] = tmp ? tmp->valuedouble : 0.0;
+
+            tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "x") : NULL;
+            spec->events[i].scale[0] = tmp ? tmp->valuedouble : 1.0;
+            tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "y") : NULL;
+            spec->events[i].scale[1] = tmp ? tmp->valuedouble : 1.0;
+            tmp = scale ? cJSON_GetObjectItemCaseSensitive(scale, "z") : NULL;
+            spec->events[i].scale[2] = tmp ? tmp->valuedouble : 1.0;
+
+            tmp = rot ? cJSON_GetObjectItemCaseSensitive(rot, "x") : NULL;
+            spec->events[i].rotation[0] = tmp ? tmp->valuedouble : 0.0;
+            tmp = rot ? cJSON_GetObjectItemCaseSensitive(rot, "y") : NULL;
+            spec->events[i].rotation[1] = tmp ? tmp->valuedouble : 0.0;
+            tmp = rot ? cJSON_GetObjectItemCaseSensitive(rot, "z") : NULL;
+            spec->events[i].rotation[2] = tmp ? tmp->valuedouble : 0.0;
+        }
+    } else {
+        spec->events_count = 0;
+        spec->events = NULL;
+    }
+
+    if (out_num_objects) {
+        *out_num_objects = (int)(spec->platform_count + spec->spikes_count +
+                                 spec->jumppads_count + spec->events_count);
+    }
+
     return spec;
 }
 
@@ -255,7 +418,7 @@ ObjectSpec* levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_
         }
     }
 
-    size_t total = spec->platform_count + spec->spikes_count + spec->jumppads_count;
+    size_t total = spec->platform_count + spec->spikes_count + spec->jumppads_count + spec->events_count;
     if (total == 0) {
         if (out_num_objects) *out_num_objects = 0;
         return NULL;
@@ -298,6 +461,16 @@ ObjectSpec* levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_
         idx++;
     }
 
+    for (size_t i = 0; i < spec->events_count; i++) {
+        strncpy(arr[idx].type, spec->events[i].type, sizeof(arr[idx].type));
+        arr[idx].type[sizeof(arr[idx].type) - 1] = '\0';
+        arr[idx].type_code = string_to_type(spec->events[i].type);
+        memcpy(arr[idx].position, spec->events[i].position, sizeof(vec3));
+        memcpy(arr[idx].scale, spec->events[i].scale, sizeof(vec3));
+        memcpy(arr[idx].rotation, spec->events[i].rotation, sizeof(vec3));
+        idx++;
+    }
+
     if (out_num_objects) *out_num_objects = (int)total;
     return arr;
 }
@@ -310,5 +483,6 @@ void level_free(LevelSpec *spec)
     if (spec->platforms) free(spec->platforms);
     if (spec->spikes) free(spec->spikes);
     if (spec->jumppads) free(spec->jumppads);
+    if (spec->events) free(spec->events);
     free(spec);
 }

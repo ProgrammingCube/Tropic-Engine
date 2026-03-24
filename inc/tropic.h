@@ -37,6 +37,11 @@ typedef struct sTropic
 
     double last_update_time;
     bool has_last_update_time;
+    bool fps_overlay_enabled;
+    double fps_overlay_sample_start_time;
+    int fps_overlay_frame_count;
+    int fps_overlay_displayed_fps;
+    bool fps_overlay_initialized;
 
     //Renderer* renderer;
     // Add more fields as needed
@@ -104,6 +109,9 @@ bool      Tropic_freeTexture(TropicID engine_id, TextureID id);
 ShaderID Tropic_newShader(TropicID engine_id, const Shader* proto);
 Shader*  Tropic_getShader(TropicID engine_id, ShaderID id);
 bool     Tropic_freeShader(TropicID engine_id, ShaderID id);
+
+void Tropic_enableVSync(TropicID engine_id, bool enabled);
+void Tropic_enableFpsOverlay(TropicID engine_id, bool enabled);
 
 //void Tropic_update(Tropic* self, float delta_time);
 //void Tropic_render(Tropic* self);

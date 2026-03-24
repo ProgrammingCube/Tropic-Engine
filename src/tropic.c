@@ -26,6 +26,11 @@ static bool _Tropic_init(TropicID engine_id, Tropic* self)
     self->scene_manager = idmgr_create( 64 );
     self->last_update_time = 0.0;
     self->has_last_update_time = false;
+    self->fps_overlay_enabled = true;
+    self->fps_overlay_sample_start_time = 0.0;
+    self->fps_overlay_frame_count = 0;
+    self->fps_overlay_displayed_fps = 0;
+    self->fps_overlay_initialized = false;
     if ( !self->scene_manager ) return false;
 
     SceneID default_scene = Tropic_createScene( engine_id, "Default Scene" );
@@ -441,5 +446,18 @@ void Tropic_cleanup(Tropic* self)
         self->window = NULL;
         glfwTerminate();
     }
+}
 
+void Tropic_enableVSync(TropicID engine_id, bool enable)
+{
+    Tropic *self = Tropic_getById(engine_id);
+    if (!self || !self->window) return;
+    glfwSwapInterval(enable ? 1 : 0);
+}
+
+void Tropic_enableFpsOverlay(TropicID engine_id, bool enable)
+{
+    Tropic *self = Tropic_getById(engine_id);
+    if (!self) return;
+    self->fps_overlay_enabled = enable;
 }

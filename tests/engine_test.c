@@ -56,7 +56,8 @@ int main(int argc, char* argv[])
         goto cleanup;
     }
 
-    //glfwSetKeyCallback(Tropic_getWindow(tropicEngine), _key_callback);
+	Tropic_enableVSync(tropicEngine, true);
+
 	if ( !Tropic_setKeyCallback(tropicEngine, _key_callback) )
     {
         fprintf(stderr, "Failed to set key callback.\n");
@@ -73,6 +74,12 @@ int main(int argc, char* argv[])
     if (!_load_test_volume_shader(tropicEngine, &render_resources.volume_shader))
     {
         fprintf(stderr, "Failed to load test platform shader.\n");
+        goto cleanup;
+    }
+
+    if (!_load_test_player_shader(tropicEngine, &render_resources.player_shader))
+    {
+        fprintf(stderr, "Failed to load test player shader.\n");
         goto cleanup;
     }
 
@@ -116,6 +123,12 @@ int main(int argc, char* argv[])
     if (!_configure_test_object_rendering(tropicEngine, player, &render_resources))
     {
         fprintf(stderr, "Failed to configure player rendering.\n");
+        goto cleanup;
+    }
+
+    if (!_initialize_player_trail(tropicEngine, player, &render_resources))
+    {
+        fprintf(stderr, "Failed to initialize player trail.\n");
         goto cleanup;
     }
 
@@ -186,6 +199,11 @@ int main(int argc, char* argv[])
             !_step_player_controller(tropicEngine, player, &config, &loop_state, time_scale))
         {
             goto cleanup;
+        }
+
+        if (!loop_state.paused)
+        {
+            _update_player_trail(tropicEngine);
         }
 
         loop_state.jump_was_down = jump_pressed;

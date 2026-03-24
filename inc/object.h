@@ -19,6 +19,7 @@ typedef enum eObjectType
     TYPE_SPIKE,
     /* TYPE_PLAYER, */
     TYPE_JUMPPAD,
+    TYPE_EVENT,
     TYPE_SQUARE,
     TYPE_MESH,
     TYPE_SPHERE,
@@ -51,13 +52,7 @@ typedef struct sTropicCollisionEvent
     ObjectID self_id;
     ObjectID other_id;
     TropicCollisionPhase phase;
-    uint32_t self_flags;
-    uint32_t other_flags;
-    bool is_trigger;
-    bool is_solid_contact;
     float impact_speed;
-    vec3 normal;
-    vec3 relative_velocity;
 } TropicCollisionEvent;
 
 typedef void (*TropicCollisionCallback)(TropicID engine_id,
@@ -87,7 +82,7 @@ typedef struct sTropicPhysicsBody
 
 typedef struct sObjectSpec
 {
-    char type[16]; // e.g. "platform", "spike", "jumppad"
+    char type[16]; // e.g. "platform", "spike", "jumppad", "event"
     /* Engine-friendly enum for object type. Filled by level conversion code so
      * the engine does not need to parse string names. */
     ObjectType type_code;
