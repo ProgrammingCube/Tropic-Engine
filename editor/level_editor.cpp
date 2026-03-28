@@ -10,6 +10,17 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <commdlg.h>
+#endif
+
 extern "C" {
 #include "tropic.h"
 #include "level_loader.h"
@@ -50,6 +61,7 @@ namespace
     {
         std::string game_title;
         std::string level_name;
+        std::string music_path;
         double play_speed;
     };
 
@@ -57,9 +69,11 @@ namespace
     {
         ObjectType type;
         std::string type_name;
+        std::string uid;
         vec3 position;
         vec3 scale;
         vec3 rotation;
+        TropicEventSpec event;
     };
 
     struct EditorMaterialUniforms
@@ -89,10 +103,9 @@ namespace
         EditorMaterialUniforms player_uniforms;
     };
 
-    struct PreviewGravityTriggerState
+    struct PreviewEventTriggerState
     {
         ObjectID player_id;
-        bool triggered;
     };
 
     struct PreviewConfig
@@ -122,7 +135,7 @@ namespace
         ObjectID player_id;
         PreviewConfig config;
         PreviewLoopState loop_state;
-        std::vector<PreviewGravityTriggerState> gravity_trigger_states;
+        std::vector<PreviewEventTriggerState> event_trigger_states;
     };
 
     struct EditorApp
@@ -146,7 +159,13 @@ namespace
         float orbit_yaw_degrees;
         float orbit_pitch_degrees;
         float orbit_distance;
+        bool ui_dirty;
+        bool exit_requested;
     };
+
+    bool has_selection(const EditorApp& app);
+    void sync_selected_object(EditorApp& app);
+    void mark_ui_dirty(EditorApp& app);
 
     void set_vec3(vec3 value, float x, float y, float z)
     {
@@ -157,7 +176,9 @@ namespace
 
     void copy_vec3(const vec3 source, vec3 destination)
     {
-        glm_vec3_copy(source, destination);
+        destination[0] = source[0];
+        destination[1] = source[1];
+        destination[2] = source[2];
     }
 
     bool key_down(int key)
@@ -188,13 +209,81 @@ namespace
         }
     }
 
+    const char* event_action_name(TropicEventActionType action_type)
+    {
+        switch (action_type)
+        {
+        case TROPIC_EVENT_ACTION_GRAVITY_SET: return "gravity_set";
+        case TROPIC_EVENT_ACTION_GRAVITY_FLIP: return "gravity_flip";
+        case TROPIC_EVENT_ACTION_WORLD_SPIN: return "world_spin";
+        case TROPIC_EVENT_ACTION_CAMERA_SPIN: return "camera_spin";
+        case TROPIC_EVENT_ACTION_CUSTOM: return "custom";
+        case TROPIC_EVENT_ACTION_NONE:
+        default:
+            return "none";
+        }
+    }
+
+    const char* event_trigger_name(TropicEventTriggerMode trigger_mode)
+    {
+        switch (trigger_mode)
+        {
+        case TROPIC_EVENT_TRIGGER_STAY: return "stay";
+        case TROPIC_EVENT_TRIGGER_EXIT: return "exit";
+        case TROPIC_EVENT_TRIGGER_ENTER:
+        default:
+            return "enter";
+        }
+    }
+
+    TropicEventSpec make_default_event_spec()
+    {
+        TropicEventSpec spec;
+        std::memset(&spec, 0, sizeof(spec));
+        spec.action_type = TROPIC_EVENT_ACTION_GRAVITY_FLIP;
+        spec.trigger_mode = TROPIC_EVENT_TRIGGER_ENTER;
+        spec.trigger_once = true;
+        spec.axis[2] = 1.0f;
+        return spec;
+    }
+
+    bool uid_exists(const EditorApp& app, const std::string& uid)
+    {
+        for (size_t i = 0; i < app.objects.size(); ++i)
+        {
+            if (app.objects[i].uid == uid)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    std::string make_unique_uid(const EditorApp& app, ObjectType type)
+    {
+        const std::string prefix = object_type_name(type);
+
+        for (size_t index = 1; ; ++index)
+        {
+            std::ostringstream stream;
+            stream << prefix << '_' << std::setw(3) << std::setfill('0') << index;
+            if (!uid_exists(app, stream.str()))
+            {
+                return stream.str();
+            }
+        }
+    }
+
     EditorObject make_editor_object(ObjectType type)
     {
         EditorObject object;
         object.type = type;
         object.type_name = object_type_name(type);
+        object.uid.clear();
         set_vec3(object.position, 0.0f, 0.0f, 0.0f);
         set_vec3(object.rotation, 0.0f, 0.0f, 0.0f);
+        object.event = make_default_event_spec();
 
         switch (type)
         {
@@ -215,6 +304,502 @@ namespace
 
         return object;
     }
+
+    std::string format_number(double value)
+    {
+        std::ostringstream stream;
+        stream << std::fixed << std::setprecision(3) << value;
+        return stream.str();
+    }
+
+    bool uid_available_for_index(const EditorApp& app, const std::string& uid, size_t ignore_index)
+    {
+        if (uid.empty())
+        {
+            return false;
+        }
+
+        for (size_t i = 0; i < app.objects.size(); ++i)
+        {
+            if (i != ignore_index && app.objects[i].uid == uid)
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+#ifdef _WIN32
+    enum EditorControlId
+    {
+        IDC_METADATA_GAME_TITLE = 1000,
+        IDC_METADATA_LEVEL_NAME,
+        IDC_METADATA_MUSIC_PATH,
+        IDC_METADATA_PLAY_SPEED,
+        IDC_OBJECT_LIST,
+        IDC_ADD_PLATFORM,
+        IDC_ADD_SPIKE,
+        IDC_ADD_JUMPPAD,
+        IDC_ADD_EVENT,
+        IDC_DUPLICATE_OBJECT,
+        IDC_DELETE_OBJECT,
+        IDC_SAVE_LEVEL,
+        IDC_RELOAD_LEVEL,
+        IDC_OPEN_LEVEL,
+        IDC_SAVE_AS_LEVEL,
+        IDC_TOGGLE_PREVIEW,
+        IDC_APPLY_CHANGES,
+        IDC_BROWSE_MUSIC,
+        IDC_AUTO_UID,
+        IDC_MOVE_X_NEG,
+        IDC_MOVE_X_POS,
+        IDC_MOVE_Y_NEG,
+        IDC_MOVE_Y_POS,
+        IDC_MOVE_Z_NEG,
+        IDC_MOVE_Z_POS,
+        IDC_UID_EDIT,
+        IDC_POSITION_X,
+        IDC_POSITION_Y,
+        IDC_POSITION_Z,
+        IDC_SCALE_X,
+        IDC_SCALE_Y,
+        IDC_SCALE_Z,
+        IDC_ROTATION_X,
+        IDC_ROTATION_Y,
+        IDC_ROTATION_Z,
+        IDC_EVENT_ACTION,
+        IDC_EVENT_TRIGGER,
+        IDC_EVENT_ONCE,
+        IDC_EVENT_TARGET_UID,
+        IDC_EVENT_FUNCTION,
+        IDC_EVENT_GRAVITY_X,
+        IDC_EVENT_GRAVITY_Y,
+        IDC_EVENT_GRAVITY_Z,
+        IDC_EVENT_AXIS_X,
+        IDC_EVENT_AXIS_Y,
+        IDC_EVENT_AXIS_Z,
+        IDC_EVENT_DEGREES,
+        IDC_EVENT_SPEED,
+        IDC_EVENT_DURATION,
+    };
+
+    struct EditorPanelState
+    {
+        HWND window;
+        HWND object_list;
+        HWND metadata_game_title;
+        HWND metadata_level_name;
+        HWND metadata_music_path;
+        HWND metadata_play_speed;
+        HWND uid_edit;
+        HWND add_platform_button;
+        HWND add_spike_button;
+        HWND add_jumppad_button;
+        HWND add_event_button;
+        HWND duplicate_button;
+        HWND delete_button;
+        HWND save_button;
+        HWND reload_button;
+        HWND open_button;
+        HWND save_as_button;
+        HWND preview_button;
+        HWND apply_button;
+        HWND browse_music_button;
+        HWND auto_uid_button;
+        HWND move_buttons[6];
+        HWND position_edits[3];
+        HWND scale_edits[3];
+        HWND rotation_edits[3];
+        HWND event_action_combo;
+        HWND event_trigger_combo;
+        HWND event_once_check;
+        HWND event_target_uid_edit;
+        HWND event_function_edit;
+        HWND event_gravity_edits[3];
+        HWND event_axis_edits[3];
+        HWND event_degrees_edit;
+        HWND event_speed_edit;
+        HWND event_duration_edit;
+        bool suppress_events;
+    };
+
+    EditorPanelState g_editor_panel = {};
+    EditorApp* g_editor_panel_app = NULL;
+    WNDPROC g_editor_edit_proc = NULL;
+
+    const char* kEditorActionLabels[] = {
+        "none",
+        "gravity_set",
+        "gravity_flip",
+        "world_spin",
+        "camera_spin",
+        "custom",
+    };
+
+    const TropicEventActionType kEditorActionTypes[] = {
+        TROPIC_EVENT_ACTION_NONE,
+        TROPIC_EVENT_ACTION_GRAVITY_SET,
+        TROPIC_EVENT_ACTION_GRAVITY_FLIP,
+        TROPIC_EVENT_ACTION_WORLD_SPIN,
+        TROPIC_EVENT_ACTION_CAMERA_SPIN,
+        TROPIC_EVENT_ACTION_CUSTOM,
+    };
+
+    const char* kEditorTriggerLabels[] = {
+        "enter",
+        "stay",
+        "exit",
+    };
+
+    const TropicEventTriggerMode kEditorTriggerTypes[] = {
+        TROPIC_EVENT_TRIGGER_ENTER,
+        TROPIC_EVENT_TRIGGER_STAY,
+        TROPIC_EVENT_TRIGGER_EXIT,
+    };
+
+    LRESULT CALLBACK editor_edit_proc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param)
+    {
+        if (message == WM_KEYDOWN && w_param == VK_RETURN)
+        {
+            HWND parent = GetParent(hwnd);
+            if (parent)
+            {
+                PostMessageA(parent, WM_COMMAND, MAKEWPARAM(IDC_APPLY_CHANGES, 0), 0);
+            }
+            return 0;
+        }
+
+        return CallWindowProcA(g_editor_edit_proc, hwnd, message, w_param, l_param);
+    }
+
+    HWND create_label(HWND parent, const char* text, int x, int y, int width, int height)
+    {
+        return CreateWindowExA(0,
+                               "STATIC",
+                               text,
+                               WS_CHILD | WS_VISIBLE,
+                               x,
+                               y,
+                               width,
+                               height,
+                               parent,
+                               NULL,
+                               GetModuleHandleA(NULL),
+                               NULL);
+    }
+
+    HWND create_edit(HWND parent, int id, int x, int y, int width, int height)
+    {
+        HWND control = CreateWindowExA(WS_EX_CLIENTEDGE,
+                                       "EDIT",
+                                       "",
+                                       WS_CHILD | WS_VISIBLE | WS_TABSTOP | ES_AUTOHSCROLL,
+                                       x,
+                                       y,
+                                       width,
+                                       height,
+                                       parent,
+                                       reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                                       GetModuleHandleA(NULL),
+                                       NULL);
+
+        if (control)
+        {
+            if (!g_editor_edit_proc)
+            {
+                g_editor_edit_proc = reinterpret_cast<WNDPROC>(GetWindowLongPtrA(control, GWLP_WNDPROC));
+            }
+            SetWindowLongPtrA(control, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(editor_edit_proc));
+        }
+
+        return control;
+    }
+
+    HWND create_button(HWND parent, const char* text, int id, int x, int y, int width, int height)
+    {
+        return CreateWindowExA(0,
+                               "BUTTON",
+                               text,
+                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON,
+                               x,
+                               y,
+                               width,
+                               height,
+                               parent,
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                               GetModuleHandleA(NULL),
+                               NULL);
+    }
+
+    HWND create_checkbox(HWND parent, const char* text, int id, int x, int y, int width, int height)
+    {
+        return CreateWindowExA(0,
+                               "BUTTON",
+                               text,
+                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_AUTOCHECKBOX,
+                               x,
+                               y,
+                               width,
+                               height,
+                               parent,
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                               GetModuleHandleA(NULL),
+                               NULL);
+    }
+
+    HWND create_combo(HWND parent, int id, int x, int y, int width, int height)
+    {
+        return CreateWindowExA(0,
+                               "COMBOBOX",
+                               "",
+                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | CBS_DROPDOWNLIST,
+                               x,
+                               y,
+                               width,
+                               height,
+                               parent,
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                               GetModuleHandleA(NULL),
+                               NULL);
+    }
+
+    HWND create_listbox(HWND parent, int id, int x, int y, int width, int height)
+    {
+        return CreateWindowExA(WS_EX_CLIENTEDGE,
+                               "LISTBOX",
+                               "",
+                               WS_CHILD | WS_VISIBLE | WS_TABSTOP | LBS_NOTIFY | WS_VSCROLL,
+                               x,
+                               y,
+                               width,
+                               height,
+                               parent,
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
+                               GetModuleHandleA(NULL),
+                               NULL);
+    }
+
+    void set_window_text(HWND control, const std::string& text)
+    {
+        if (control)
+        {
+            SetWindowTextA(control, text.c_str());
+        }
+    }
+
+    std::string get_window_text(HWND control)
+    {
+        int length;
+        std::vector<char> buffer;
+
+        if (!control)
+        {
+            return std::string();
+        }
+
+        length = GetWindowTextLengthA(control);
+        buffer.resize(static_cast<size_t>(length) + 1u, '\0');
+        GetWindowTextA(control, buffer.data(), length + 1);
+        return std::string(buffer.data());
+    }
+
+    float read_float_or_default(HWND control, float default_value)
+    {
+        std::string text = get_window_text(control);
+        char* end = NULL;
+        float value;
+
+        if (text.empty())
+        {
+            return default_value;
+        }
+
+        value = std::strtof(text.c_str(), &end);
+        return end != text.c_str() ? value : default_value;
+    }
+
+    double read_double_or_default(HWND control, double default_value)
+    {
+        std::string text = get_window_text(control);
+        char* end = NULL;
+        double value;
+
+        if (text.empty())
+        {
+            return default_value;
+        }
+
+        value = std::strtod(text.c_str(), &end);
+        return end != text.c_str() ? value : default_value;
+    }
+
+    void set_edit_float(HWND control, float value)
+    {
+        set_window_text(control, format_number(value));
+    }
+
+    void set_edit_double(HWND control, double value)
+    {
+        set_window_text(control, format_number(value));
+    }
+
+    std::string normalize_path_slashes(std::string path)
+    {
+        std::replace(path.begin(), path.end(), '\\', '/');
+        return path;
+    }
+
+    std::string make_workspace_relative_path(const std::string& path)
+    {
+        const std::string normalized_path = normalize_path_slashes(path);
+        const std::string source_root = normalize_path_slashes(std::string(TROPIC_SOURCE_DIR));
+
+        if (normalized_path.compare(0, source_root.size(), source_root) == 0)
+        {
+            size_t offset = source_root.size();
+            while (offset < normalized_path.size() && (normalized_path[offset] == '/' || normalized_path[offset] == '\\'))
+            {
+                ++offset;
+            }
+            return normalized_path.substr(offset);
+        }
+
+        return normalized_path;
+    }
+
+    bool browse_for_file(HWND owner,
+                         const char* filter,
+                         const char* default_extension,
+                         const char* title,
+                         bool save_dialog,
+                         std::string& out_path)
+    {
+        char file_buffer[MAX_PATH] = { 0 };
+        OPENFILENAMEA dialog = {};
+
+        dialog.lStructSize = sizeof(dialog);
+        dialog.hwndOwner = owner;
+        dialog.lpstrFilter = filter;
+        dialog.lpstrFile = file_buffer;
+        dialog.nMaxFile = static_cast<DWORD>(sizeof(file_buffer));
+        dialog.lpstrDefExt = default_extension;
+        dialog.lpstrTitle = title;
+        dialog.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST;
+        if (!save_dialog)
+        {
+            dialog.Flags |= OFN_FILEMUSTEXIST;
+        }
+        else
+        {
+            dialog.Flags |= OFN_OVERWRITEPROMPT;
+        }
+
+        if ((save_dialog ? GetSaveFileNameA(&dialog) : GetOpenFileNameA(&dialog)) == FALSE)
+        {
+            return false;
+        }
+
+        out_path = normalize_path_slashes(std::string(file_buffer));
+        return true;
+    }
+
+    int find_action_combo_index(TropicEventActionType action)
+    {
+        for (size_t i = 0; i < sizeof(kEditorActionTypes) / sizeof(kEditorActionTypes[0]); ++i)
+        {
+            if (kEditorActionTypes[i] == action)
+            {
+                return static_cast<int>(i);
+            }
+        }
+        return 0;
+    }
+
+    int find_trigger_combo_index(TropicEventTriggerMode trigger)
+    {
+        for (size_t i = 0; i < sizeof(kEditorTriggerTypes) / sizeof(kEditorTriggerTypes[0]); ++i)
+        {
+            if (kEditorTriggerTypes[i] == trigger)
+            {
+                return static_cast<int>(i);
+            }
+        }
+        return 0;
+    }
+
+    void set_event_controls_enabled(bool enabled)
+    {
+        EnableWindow(g_editor_panel.event_action_combo, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_trigger_combo, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_once_check, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_target_uid_edit, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_function_edit, enabled ? TRUE : FALSE);
+        for (int i = 0; i < 3; ++i)
+        {
+            EnableWindow(g_editor_panel.event_gravity_edits[i], enabled ? TRUE : FALSE);
+            EnableWindow(g_editor_panel.event_axis_edits[i], enabled ? TRUE : FALSE);
+        }
+        EnableWindow(g_editor_panel.event_degrees_edit, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_speed_edit, enabled ? TRUE : FALSE);
+        EnableWindow(g_editor_panel.event_duration_edit, enabled ? TRUE : FALSE);
+    }
+
+    bool is_live_apply_control(int control_id, int notification_code)
+    {
+        if (control_id == IDC_OBJECT_LIST)
+        {
+            return false;
+        }
+
+        if (control_id == IDC_UID_EDIT)
+        {
+            return notification_code == EN_KILLFOCUS;
+        }
+
+        if ((control_id >= IDC_METADATA_GAME_TITLE && control_id <= IDC_METADATA_PLAY_SPEED) ||
+            (control_id >= IDC_POSITION_X && control_id <= IDC_ROTATION_Z) ||
+            (control_id >= IDC_EVENT_TARGET_UID && control_id <= IDC_EVENT_DURATION))
+        {
+            return notification_code == EN_KILLFOCUS;
+        }
+
+        if (control_id == IDC_EVENT_ACTION || control_id == IDC_EVENT_TRIGGER)
+        {
+            return notification_code == CBN_SELCHANGE;
+        }
+
+        if (control_id == IDC_EVENT_ONCE)
+        {
+            return notification_code == BN_CLICKED;
+        }
+
+        return false;
+    }
+
+    void nudge_selected_position(EditorApp& app, int axis, float delta)
+    {
+        if (!has_selection(app) || axis < 0 || axis > 2)
+        {
+            return;
+        }
+
+        app.objects[app.selected_index].position[axis] += delta;
+        if (app.initialized)
+        {
+            sync_selected_object(app);
+        }
+        else
+        {
+            mark_ui_dirty(app);
+        }
+    }
+
+    void mark_ui_dirty(EditorApp& app)
+    {
+        app.ui_dirty = true;
+    }
+#endif
 
     std::vector<std::string> level_path_candidates()
     {
@@ -504,12 +1089,14 @@ namespace
 
         app.metadata.game_title = "Cyclone";
         app.metadata.level_name = "Untitled Level";
+        app.metadata.music_path.clear();
         app.metadata.play_speed = 1.0;
         app.objects.clear();
         app.selected_index = kNoSelection;
 
         if (!level_spec)
         {
+            mark_ui_dirty(app);
             return false;
         }
 
@@ -525,40 +1112,52 @@ namespace
         {
             app.metadata.play_speed = level_spec->play_speed;
         }
+        if (level_spec->music_path)
+        {
+            app.metadata.music_path = level_spec->music_path;
+        }
 
         for (size_t i = 0; i < level_spec->platform_count; ++i)
         {
             EditorObject object = make_editor_object(TYPE_PLATFORM);
+            object.uid = level_spec->platforms[i].uid;
             copy_vec3(level_spec->platforms[i].position, object.position);
             copy_vec3(level_spec->platforms[i].scale, object.scale);
             copy_vec3(level_spec->platforms[i].rotation, object.rotation);
+            object.event = level_spec->platforms[i].event;
             app.objects.push_back(object);
         }
 
         for (size_t i = 0; i < level_spec->spikes_count; ++i)
         {
             EditorObject object = make_editor_object(TYPE_SPIKE);
+            object.uid = level_spec->spikes[i].uid;
             copy_vec3(level_spec->spikes[i].position, object.position);
             copy_vec3(level_spec->spikes[i].scale, object.scale);
             copy_vec3(level_spec->spikes[i].rotation, object.rotation);
+            object.event = level_spec->spikes[i].event;
             app.objects.push_back(object);
         }
 
         for (size_t i = 0; i < level_spec->jumppads_count; ++i)
         {
             EditorObject object = make_editor_object(TYPE_JUMPPAD);
+            object.uid = level_spec->jumppads[i].uid;
             copy_vec3(level_spec->jumppads[i].position, object.position);
             copy_vec3(level_spec->jumppads[i].scale, object.scale);
             copy_vec3(level_spec->jumppads[i].rotation, object.rotation);
+            object.event = level_spec->jumppads[i].event;
             app.objects.push_back(object);
         }
 
         for (size_t i = 0; i < level_spec->events_count; ++i)
         {
             EditorObject object = make_editor_object(TYPE_EVENT);
+            object.uid = level_spec->events[i].uid;
             copy_vec3(level_spec->events[i].position, object.position);
             copy_vec3(level_spec->events[i].scale, object.scale);
             copy_vec3(level_spec->events[i].rotation, object.rotation);
+            object.event = level_spec->events[i].event;
             app.objects.push_back(object);
         }
 
@@ -568,6 +1167,7 @@ namespace
         }
 
         level_free(level_spec);
+        mark_ui_dirty(app);
         return true;
     }
 
@@ -590,12 +1190,67 @@ namespace
         return stream.str();
     }
 
+    void write_vec3_block(std::ofstream& file,
+                          const char* name,
+                          const vec3 value,
+                          const std::string& indent)
+    {
+        file << indent << "\"" << name << "\": {\n";
+        file << indent << "  \"x\": " << value[0] << ",\n";
+        file << indent << "  \"y\": " << value[1] << ",\n";
+        file << indent << "  \"z\": " << value[2] << "\n";
+        file << indent << '}';
+    }
+
+    void write_event_block(std::ofstream& file,
+                           const EditorObject& object,
+                           const std::string& indent)
+    {
+        file << indent << "\"event_type\": \"" << event_action_name(object.event.action_type) << "\",\n";
+        file << indent << "\"trigger\": \"" << event_trigger_name(object.event.trigger_mode) << "\",\n";
+        file << indent << "\"once\": " << (object.event.trigger_once ? "true" : "false");
+
+        switch (object.event.action_type)
+        {
+        case TROPIC_EVENT_ACTION_GRAVITY_SET:
+            file << ",\n";
+            write_vec3_block(file, "gravity", object.event.gravity, indent);
+            break;
+        case TROPIC_EVENT_ACTION_WORLD_SPIN:
+        case TROPIC_EVENT_ACTION_CAMERA_SPIN:
+            file << ",\n";
+            write_vec3_block(file, "axis", object.event.axis, indent);
+            file << ",\n";
+            file << indent << "\"degrees\": " << object.event.degrees << ",\n";
+            file << indent << "\"speed\": " << object.event.speed << ",\n";
+            file << indent << "\"duration\": " << object.event.duration_seconds;
+            if (object.event.action_type == TROPIC_EVENT_ACTION_WORLD_SPIN && object.event.target_uid[0] != '\0')
+            {
+                file << ",\n";
+                file << indent << "\"target_uid\": \"" << json_escape(object.event.target_uid) << "\"";
+            }
+            break;
+        case TROPIC_EVENT_ACTION_CUSTOM:
+            if (object.event.custom_function[0] != '\0')
+            {
+                file << ",\n";
+                file << indent << "\"function\": \"" << json_escape(object.event.custom_function) << "\"";
+            }
+            break;
+        case TROPIC_EVENT_ACTION_GRAVITY_FLIP:
+        case TROPIC_EVENT_ACTION_NONE:
+        default:
+            break;
+        }
+    }
+
     void write_transform_block(std::ofstream& file,
                                const EditorObject& object,
                                bool platform_style,
                                const std::string& indent)
     {
         file << indent << "{\n";
+        file << indent << "  \"uid\": \"" << json_escape(object.uid) << "\",\n";
         file << indent << "  \"pos\": {\n";
         file << std::fixed << std::setprecision(3);
         file << indent << "    \"x\": " << object.position[0] << ",\n";
@@ -623,7 +1278,17 @@ namespace
         file << indent << "    \"x\": " << object.rotation[0] << ",\n";
         file << indent << "    \"y\": " << object.rotation[1] << ",\n";
         file << indent << "    \"z\": " << object.rotation[2] << "\n";
-        file << indent << "  }\n";
+        file << indent << "  }";
+        if (object.type == TYPE_EVENT)
+        {
+            file << ",\n";
+            write_event_block(file, object, indent + "  ");
+            file << "\n";
+        }
+        else
+        {
+            file << "\n";
+        }
         file << indent << "}";
     }
 
@@ -671,6 +1336,7 @@ namespace
         file << "  \"metadata\": {\n";
         file << "    \"game_title\": \"" << json_escape(app.metadata.game_title) << "\",\n";
         file << "    \"level_name\": \"" << json_escape(app.metadata.level_name) << "\",\n";
+        file << "    \"music_path\": \"" << json_escape(app.metadata.music_path) << "\",\n";
         file << std::fixed << std::setprecision(3);
         file << "    \"play_speed\": " << app.metadata.play_speed << "\n";
         file << "  },\n";
@@ -687,9 +1353,13 @@ namespace
         Object prototype;
         std::memset(&prototype, 0, sizeof(prototype));
         prototype.type = editor_object.type;
+        std::strncpy(prototype.uid, editor_object.uid.c_str(), sizeof(prototype.uid));
+        prototype.uid[sizeof(prototype.uid) - 1] = '\0';
         copy_vec3(editor_object.position, prototype.pos);
         copy_vec3(editor_object.scale, prototype.scale);
         copy_vec3(editor_object.rotation, prototype.rot);
+        prototype.event = editor_object.event;
+        prototype.event.has_fired = false;
 
         out_id = Tropic_newObject(app.engine, &prototype);
         if (out_id == 0)
@@ -807,23 +1477,59 @@ namespace
         }
     }
 
-    extern "C" void gravity_trigger_callback(TropicID engine_id,
-                                               const TropicCollisionEvent* event,
-                                               void* user_data)
+    bool dispatch_preview_custom_event(TropicID engine_id,
+                                       Object* object,
+                                       const TropicCollisionEvent* event)
     {
-        PreviewGravityTriggerState* state = static_cast<PreviewGravityTriggerState*>(user_data);
-        if (!state || !event)
+        if (!object || !event || object->event.action_type != TROPIC_EVENT_ACTION_CUSTOM)
+        {
+            return false;
+        }
+
+        if (std::strcmp(object->event.custom_function, "invert_gravity") == 0)
+        {
+            return Tropic_invertGravity(engine_id, Tropic_getCurrentSceneID(engine_id));
+        }
+
+        if (std::strcmp(object->event.custom_function, "spin_camera_90") == 0)
+        {
+            vec3 axis;
+            set_vec3(axis, 0.0f, 0.0f, 1.0f);
+            return Tropic_spinCamera(engine_id,
+                                     Tropic_getActiveCameraId(engine_id),
+                                     axis,
+                                     90.0f,
+                                     0.5f);
+        }
+
+        (void)event;
+        return false;
+    }
+
+    extern "C" void preview_event_callback(TropicID engine_id,
+                                            const TropicCollisionEvent* event,
+                                            void* user_data)
+    {
+        PreviewEventTriggerState* state = static_cast<PreviewEventTriggerState*>(user_data);
+        Object* object;
+
+        if (!state || !event || event->other_id != state->player_id)
         {
             return;
         }
 
-        if (state->triggered || event->phase != TROPIC_COLLISION_ENTER || event->other_id != state->player_id)
+        if (!Tropic_shouldTriggerObjectEvent(engine_id, event->self_id, event))
         {
             return;
         }
 
-        state->triggered = true;
-        (void)Tropic_invertGravity(engine_id, Tropic_getCurrentSceneID(engine_id));
+        if (Tropic_executeObjectBuiltinEvent(engine_id, event->self_id))
+        {
+            return;
+        }
+
+        object = Tropic_getObject(engine_id, event->self_id);
+        (void)dispatch_preview_custom_event(engine_id, object, event);
     }
 
     bool bind_preview_camera(EditorApp& app)
@@ -837,8 +1543,8 @@ namespace
 
     bool setup_preview_callbacks(EditorApp& app)
     {
-        app.preview.gravity_trigger_states.clear();
-        app.preview.gravity_trigger_states.reserve(app.object_ids.size());
+        app.preview.event_trigger_states.clear();
+        app.preview.event_trigger_states.reserve(app.object_ids.size());
 
         for (size_t i = 0; i < app.object_ids.size(); ++i)
         {
@@ -847,14 +1553,13 @@ namespace
                 continue;
             }
 
-            PreviewGravityTriggerState state;
+            PreviewEventTriggerState state;
             state.player_id = app.preview.player_id;
-            state.triggered = false;
-            app.preview.gravity_trigger_states.push_back(state);
+            app.preview.event_trigger_states.push_back(state);
             if (!Tropic_setObjectCollisionCallback(app.engine,
                                                    app.object_ids[i],
-                                                   gravity_trigger_callback,
-                                                   &app.preview.gravity_trigger_states.back()))
+                                                   preview_event_callback,
+                                                   &app.preview.event_trigger_states.back()))
             {
                 return false;
             }
@@ -866,7 +1571,7 @@ namespace
     void reset_preview(EditorApp& app)
     {
         app.preview.player_id = 0;
-        app.preview.gravity_trigger_states.clear();
+        app.preview.event_trigger_states.clear();
         app.preview.config.move_speed = 5.0f;
         app.preview.config.forward_speed = 16.0f;
         app.preview.config.jump_speed = 9.0f;
@@ -1121,6 +1826,7 @@ namespace
         }
 
         app.initialized = true;
+        mark_ui_dirty(app);
         return true;
     }
 
@@ -1134,6 +1840,7 @@ namespace
         app.camera_id = 0;
         app.object_ids.clear();
         app.initialized = false;
+        mark_ui_dirty(app);
     }
 
     void queue_mode_switch(EditorApp& app, EditorMode mode)
@@ -1151,11 +1858,12 @@ namespace
 
         std::cout
             << "Tropic Level Editor controls\n"
+            << "  Use the Tools window for object lists, buttons, and text fields\n"
             << "  Tab / Shift+Tab : select next or previous object\n"
             << "  1/2/3/4         : add platform, spike, jumppad, event\n"
             << "  G/R/T           : move, rotate, scale tool\n"
             << "  X/Y/Z           : active axis\n"
-            << "  [ and ]         : nudge selected value on active axis\n"
+            << "  [ and ]         : nudge the selected object's current tool value on the active axis\n"
             << "  Arrow keys      : orbit camera\n"
             << "  PageUp/PageDown : zoom camera\n"
             << "  F2              : save level JSON\n"
@@ -1166,6 +1874,8 @@ namespace
 
     void sync_selected_object(EditorApp& app)
     {
+        Object* runtime_object;
+
         if (!has_selection(app))
         {
             return;
@@ -1180,6 +1890,17 @@ namespace
         (void)Tropic_setObjectScale(app.engine,
                                     app.object_ids[app.selected_index],
                                     app.objects[app.selected_index].scale);
+
+        runtime_object = Tropic_getObject(app.engine, app.object_ids[app.selected_index]);
+        if (runtime_object)
+        {
+            std::strncpy(runtime_object->uid, app.objects[app.selected_index].uid.c_str(), sizeof(runtime_object->uid));
+            runtime_object->uid[sizeof(runtime_object->uid) - 1] = '\0';
+            runtime_object->event = app.objects[app.selected_index].event;
+            runtime_object->event.has_fired = false;
+        }
+
+        mark_ui_dirty(app);
     }
 
     void adjust_selected_object(EditorApp& app, float direction)
@@ -1231,6 +1952,61 @@ namespace
         }
 
         update_selection_materials(app);
+        mark_ui_dirty(app);
+    }
+
+    bool duplicate_selected_object(EditorApp& app)
+    {
+        EditorObject object;
+        ObjectID object_id = 0;
+
+        if (!has_selection(app))
+        {
+            return false;
+        }
+
+        object = app.objects[app.selected_index];
+        object.uid = make_unique_uid(app, object.type);
+        object.position[0] += 1.0f;
+        object.position[2] += 1.0f;
+
+        app.objects.push_back(object);
+        if (!create_runtime_object(app, app.objects.back(), object_id))
+        {
+            app.objects.pop_back();
+            return false;
+        }
+
+        app.object_ids.push_back(object_id);
+        app.selected_index = app.objects.size() - 1;
+        update_selection_materials(app);
+        mark_ui_dirty(app);
+        return true;
+    }
+
+    bool delete_selected_object(EditorApp& app)
+    {
+        if (!has_selection(app))
+        {
+            return false;
+        }
+
+        (void)Tropic_freeObject(app.engine, app.object_ids[app.selected_index]);
+        app.objects.erase(app.objects.begin() + static_cast<std::ptrdiff_t>(app.selected_index));
+        app.object_ids.erase(app.object_ids.begin() + static_cast<std::ptrdiff_t>(app.selected_index));
+
+        if (app.objects.empty())
+        {
+            app.selected_index = kNoSelection;
+        }
+        else if (app.selected_index >= app.objects.size())
+        {
+            app.selected_index = app.objects.size() - 1;
+        }
+
+        update_selection_materials(app);
+        mark_ui_dirty(app);
+        return true;
     }
 
     bool add_object(EditorApp& app, ObjectType type)
@@ -1242,6 +2018,7 @@ namespace
         compute_camera_focus(app, focus);
         copy_vec3(focus, object.position);
         object.position[1] += 1.0f;
+        object.uid = make_unique_uid(app, type);
         if (type == TYPE_PLATFORM)
         {
             object.position[1] -= 1.0f;
@@ -1257,6 +2034,7 @@ namespace
         app.object_ids.push_back(object_id);
         app.selected_index = app.objects.size() - 1;
         update_selection_materials(app);
+        mark_ui_dirty(app);
         return true;
     }
 
@@ -1344,6 +2122,605 @@ namespace
     {
         std::memcpy(g_prev_keys, g_keys, sizeof(g_keys));
     }
+
+#ifdef _WIN32
+    std::string describe_object_list_item(const EditorObject& object)
+    {
+        std::ostringstream stream;
+        stream << object.uid << " [" << object.type_name << ']';
+        return stream.str();
+    }
+
+    void sync_panel_from_app(EditorApp& app)
+    {
+        int selection = LB_ERR;
+        bool event_selected = false;
+
+        if (!g_editor_panel.window || !app.ui_dirty)
+        {
+            return;
+        }
+
+        g_editor_panel.suppress_events = true;
+
+        set_window_text(g_editor_panel.metadata_game_title, app.metadata.game_title);
+        set_window_text(g_editor_panel.metadata_level_name, app.metadata.level_name);
+        set_window_text(g_editor_panel.metadata_music_path, app.metadata.music_path);
+        set_edit_double(g_editor_panel.metadata_play_speed, app.metadata.play_speed);
+
+        SendMessageA(g_editor_panel.object_list, LB_RESETCONTENT, 0, 0);
+        for (size_t i = 0; i < app.objects.size(); ++i)
+        {
+            const std::string label = describe_object_list_item(app.objects[i]);
+            SendMessageA(g_editor_panel.object_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+
+        if (app.selected_index < app.objects.size())
+        {
+            selection = static_cast<int>(app.selected_index);
+            SendMessageA(g_editor_panel.object_list, LB_SETCURSEL, static_cast<WPARAM>(selection), 0);
+
+            set_window_text(g_editor_panel.uid_edit, app.objects[app.selected_index].uid);
+            for (int i = 0; i < 3; ++i)
+            {
+                set_edit_float(g_editor_panel.position_edits[i], app.objects[app.selected_index].position[i]);
+                set_edit_float(g_editor_panel.scale_edits[i], app.objects[app.selected_index].scale[i]);
+                set_edit_float(g_editor_panel.rotation_edits[i], app.objects[app.selected_index].rotation[i]);
+            }
+
+            event_selected = app.objects[app.selected_index].type == TYPE_EVENT;
+            set_event_controls_enabled(event_selected);
+            if (event_selected)
+            {
+                const EditorObject& object = app.objects[app.selected_index];
+                SendMessageA(g_editor_panel.event_action_combo, CB_SETCURSEL, static_cast<WPARAM>(find_action_combo_index(object.event.action_type)), 0);
+                SendMessageA(g_editor_panel.event_trigger_combo, CB_SETCURSEL, static_cast<WPARAM>(find_trigger_combo_index(object.event.trigger_mode)), 0);
+                SendMessageA(g_editor_panel.event_once_check, BM_SETCHECK, object.event.trigger_once ? BST_CHECKED : BST_UNCHECKED, 0);
+                set_window_text(g_editor_panel.event_target_uid_edit, object.event.target_uid);
+                set_window_text(g_editor_panel.event_function_edit, object.event.custom_function);
+                for (int i = 0; i < 3; ++i)
+                {
+                    set_edit_float(g_editor_panel.event_gravity_edits[i], object.event.gravity[i]);
+                    set_edit_float(g_editor_panel.event_axis_edits[i], object.event.axis[i]);
+                }
+                set_edit_float(g_editor_panel.event_degrees_edit, object.event.degrees);
+                set_edit_float(g_editor_panel.event_speed_edit, object.event.speed);
+                set_edit_float(g_editor_panel.event_duration_edit, object.event.duration_seconds);
+            }
+            else
+            {
+                SendMessageA(g_editor_panel.event_action_combo, CB_SETCURSEL, 0, 0);
+                SendMessageA(g_editor_panel.event_trigger_combo, CB_SETCURSEL, 0, 0);
+                SendMessageA(g_editor_panel.event_once_check, BM_SETCHECK, BST_UNCHECKED, 0);
+                set_window_text(g_editor_panel.event_target_uid_edit, "");
+                set_window_text(g_editor_panel.event_function_edit, "");
+                for (int i = 0; i < 3; ++i)
+                {
+                    set_window_text(g_editor_panel.event_gravity_edits[i], "");
+                    set_window_text(g_editor_panel.event_axis_edits[i], "");
+                }
+                set_window_text(g_editor_panel.event_degrees_edit, "");
+                set_window_text(g_editor_panel.event_speed_edit, "");
+                set_window_text(g_editor_panel.event_duration_edit, "");
+            }
+        }
+        else
+        {
+            SendMessageA(g_editor_panel.object_list, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+            set_window_text(g_editor_panel.uid_edit, "");
+            for (int i = 0; i < 3; ++i)
+            {
+                set_window_text(g_editor_panel.position_edits[i], "");
+                set_window_text(g_editor_panel.scale_edits[i], "");
+                set_window_text(g_editor_panel.rotation_edits[i], "");
+                set_window_text(g_editor_panel.event_gravity_edits[i], "");
+                set_window_text(g_editor_panel.event_axis_edits[i], "");
+            }
+            set_window_text(g_editor_panel.event_target_uid_edit, "");
+            set_window_text(g_editor_panel.event_function_edit, "");
+            set_window_text(g_editor_panel.event_degrees_edit, "");
+            set_window_text(g_editor_panel.event_speed_edit, "");
+            set_window_text(g_editor_panel.event_duration_edit, "");
+            set_event_controls_enabled(false);
+        }
+
+        SetWindowTextA(g_editor_panel.preview_button, app.mode == EditorMode::Preview ? "Return to Edit" : "Enter Preview");
+        g_editor_panel.suppress_events = false;
+        app.ui_dirty = false;
+    }
+
+    bool apply_panel_to_app(EditorApp& app)
+    {
+        if (g_editor_panel.suppress_events)
+        {
+            return true;
+        }
+
+        app.metadata.game_title = get_window_text(g_editor_panel.metadata_game_title);
+        app.metadata.level_name = get_window_text(g_editor_panel.metadata_level_name);
+        app.metadata.music_path = make_workspace_relative_path(get_window_text(g_editor_panel.metadata_music_path));
+        app.metadata.play_speed = std::max(0.1, read_double_or_default(g_editor_panel.metadata_play_speed, app.metadata.play_speed));
+
+        if (has_selection(app))
+        {
+            EditorObject& object = app.objects[app.selected_index];
+            const std::string previous_uid = object.uid;
+            std::string candidate_uid = get_window_text(g_editor_panel.uid_edit);
+
+            if (!uid_available_for_index(app, candidate_uid, app.selected_index))
+            {
+                MessageBoxA(g_editor_panel.window,
+                            "UIDs must be non-empty and unique across the whole level.",
+                            "Invalid UID",
+                            MB_OK | MB_ICONWARNING);
+                return false;
+            }
+
+            object.uid = candidate_uid;
+            for (int i = 0; i < 3; ++i)
+            {
+                object.position[i] = read_float_or_default(g_editor_panel.position_edits[i], object.position[i]);
+                object.scale[i] = std::max(0.1f, read_float_or_default(g_editor_panel.scale_edits[i], object.scale[i]));
+                object.rotation[i] = read_float_or_default(g_editor_panel.rotation_edits[i], object.rotation[i]);
+            }
+
+            if (object.type == TYPE_EVENT)
+            {
+                int action_index = static_cast<int>(SendMessageA(g_editor_panel.event_action_combo, CB_GETCURSEL, 0, 0));
+                int trigger_index = static_cast<int>(SendMessageA(g_editor_panel.event_trigger_combo, CB_GETCURSEL, 0, 0));
+                std::string target_uid = get_window_text(g_editor_panel.event_target_uid_edit);
+
+                if (action_index < 0) action_index = 0;
+                if (trigger_index < 0) trigger_index = 0;
+                object.event.action_type = kEditorActionTypes[action_index];
+                object.event.trigger_mode = kEditorTriggerTypes[trigger_index];
+                object.event.trigger_once = SendMessageA(g_editor_panel.event_once_check, BM_GETCHECK, 0, 0) == BST_CHECKED;
+                object.event.degrees = read_float_or_default(g_editor_panel.event_degrees_edit, object.event.degrees);
+                object.event.speed = read_float_or_default(g_editor_panel.event_speed_edit, object.event.speed);
+                object.event.duration_seconds = read_float_or_default(g_editor_panel.event_duration_edit, object.event.duration_seconds);
+                for (int i = 0; i < 3; ++i)
+                {
+                    object.event.gravity[i] = read_float_or_default(g_editor_panel.event_gravity_edits[i], object.event.gravity[i]);
+                    object.event.axis[i] = read_float_or_default(g_editor_panel.event_axis_edits[i], object.event.axis[i]);
+                }
+                std::strncpy(object.event.custom_function, get_window_text(g_editor_panel.event_function_edit).c_str(), sizeof(object.event.custom_function));
+                object.event.custom_function[sizeof(object.event.custom_function) - 1] = '\0';
+                if (target_uid == "self")
+                {
+                    target_uid = object.uid;
+                }
+                std::strncpy(object.event.target_uid, target_uid.c_str(), sizeof(object.event.target_uid));
+                object.event.target_uid[sizeof(object.event.target_uid) - 1] = '\0';
+            }
+
+            if (object.type != TYPE_EVENT)
+            {
+                std::memset(&object.event, 0, sizeof(object.event));
+                object.event = make_default_event_spec();
+            }
+
+            if (!previous_uid.empty())
+            {
+                for (size_t i = 0; i < app.objects.size(); ++i)
+                {
+                    if (i != app.selected_index && app.objects[i].type == TYPE_EVENT && std::strcmp(app.objects[i].event.target_uid, previous_uid.c_str()) == 0)
+                    {
+                        std::strncpy(app.objects[i].event.target_uid, object.uid.c_str(), sizeof(app.objects[i].event.target_uid));
+                        app.objects[i].event.target_uid[sizeof(app.objects[i].event.target_uid) - 1] = '\0';
+                    }
+                }
+            }
+
+            if (app.initialized)
+            {
+                sync_selected_object(app);
+            }
+        }
+
+        if (app.initialized && Tropic_getGameState(app.engine))
+        {
+            TropicGameState* state = Tropic_getGameState(app.engine);
+            Tropic_getGameState(app.engine)->play_speed = static_cast<float>(app.metadata.play_speed);
+            if (state->music_path) free(state->music_path);
+            state->music_path = _strdup(app.metadata.music_path.c_str());
+        }
+
+        mark_ui_dirty(app);
+        return true;
+    }
+
+    void reload_level_into_app(EditorApp& app)
+    {
+        if (!load_level_model(app))
+        {
+            MessageBoxA(g_editor_panel.window,
+                        "Failed to reload the level from disk. Check the JSON for duplicate UIDs or malformed data.",
+                        "Reload Failed",
+                        MB_OK | MB_ICONERROR);
+            return;
+        }
+
+        mark_ui_dirty(app);
+        queue_mode_switch(app, app.mode);
+    }
+
+    void open_level_from_dialog(EditorApp& app)
+    {
+        std::string path;
+
+        if (!browse_for_file(g_editor_panel.window,
+                             "JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0",
+                             "json",
+                             "Open Level JSON",
+                             false,
+                             path))
+        {
+            return;
+        }
+
+        app.level_path = path;
+        reload_level_into_app(app);
+    }
+
+    void save_level_as_from_dialog(EditorApp& app)
+    {
+        std::string path;
+
+        if (!apply_panel_to_app(app))
+        {
+            return;
+        }
+
+        if (!browse_for_file(g_editor_panel.window,
+                             "JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0",
+                             "json",
+                             "Save Level JSON As",
+                             true,
+                             path))
+        {
+            return;
+        }
+
+        app.level_path = path;
+        if (save_level_model(app))
+        {
+            MessageBoxA(g_editor_panel.window, "Level saved to the selected file.", "Save Complete", MB_OK | MB_ICONINFORMATION);
+        }
+    }
+
+    void browse_music_for_app(EditorApp& app)
+    {
+        std::string path;
+
+        if (!browse_for_file(g_editor_panel.window,
+                             "Audio Files (*.mp3;*.wav;*.ogg;*.flac)\0*.mp3;*.wav;*.ogg;*.flac\0All Files (*.*)\0*.*\0",
+                             "mp3",
+                             "Choose Music File",
+                             false,
+                             path))
+        {
+            return;
+        }
+
+        app.metadata.music_path = make_workspace_relative_path(path);
+        mark_ui_dirty(app);
+        (void)apply_panel_to_app(app);
+    }
+
+    void handle_editor_panel_command(EditorApp& app, int control_id, int notification_code)
+    {
+        if (g_editor_panel.suppress_events)
+        {
+            return;
+        }
+
+        if (is_live_apply_control(control_id, notification_code))
+        {
+            (void)apply_panel_to_app(app);
+            return;
+        }
+
+        switch (control_id)
+        {
+        case IDC_OBJECT_LIST:
+            if (notification_code == LBN_SELCHANGE)
+            {
+                int selection = static_cast<int>(SendMessageA(g_editor_panel.object_list, LB_GETCURSEL, 0, 0));
+                if (selection >= 0)
+                {
+                    app.selected_index = static_cast<size_t>(selection);
+                    update_selection_materials(app);
+                    mark_ui_dirty(app);
+                }
+            }
+            break;
+        case IDC_ADD_PLATFORM:
+            (void)add_object(app, TYPE_PLATFORM);
+            break;
+        case IDC_ADD_SPIKE:
+            (void)add_object(app, TYPE_SPIKE);
+            break;
+        case IDC_ADD_JUMPPAD:
+            (void)add_object(app, TYPE_JUMPPAD);
+            break;
+        case IDC_ADD_EVENT:
+            (void)add_object(app, TYPE_EVENT);
+            break;
+        case IDC_DUPLICATE_OBJECT:
+            (void)duplicate_selected_object(app);
+            break;
+        case IDC_DELETE_OBJECT:
+            (void)delete_selected_object(app);
+            break;
+        case IDC_SAVE_LEVEL:
+            if (apply_panel_to_app(app) && save_level_model(app))
+            {
+                MessageBoxA(g_editor_panel.window, "Level saved.", "Save Complete", MB_OK | MB_ICONINFORMATION);
+            }
+            break;
+        case IDC_SAVE_AS_LEVEL:
+            save_level_as_from_dialog(app);
+            break;
+        case IDC_OPEN_LEVEL:
+            open_level_from_dialog(app);
+            break;
+        case IDC_RELOAD_LEVEL:
+            reload_level_into_app(app);
+            break;
+        case IDC_TOGGLE_PREVIEW:
+            if (apply_panel_to_app(app))
+            {
+                queue_mode_switch(app, app.mode == EditorMode::Preview ? EditorMode::Edit : EditorMode::Preview);
+            }
+            break;
+        case IDC_APPLY_CHANGES:
+            (void)apply_panel_to_app(app);
+            break;
+        case IDC_AUTO_UID:
+            if (has_selection(app))
+            {
+                app.objects[app.selected_index].uid = make_unique_uid(app, app.objects[app.selected_index].type);
+                if (app.initialized)
+                {
+                    sync_selected_object(app);
+                }
+                mark_ui_dirty(app);
+            }
+            break;
+        case IDC_BROWSE_MUSIC:
+            browse_music_for_app(app);
+            break;
+        case IDC_MOVE_X_NEG:
+            nudge_selected_position(app, 0, -kEditorMoveStep);
+            break;
+        case IDC_MOVE_X_POS:
+            nudge_selected_position(app, 0, kEditorMoveStep);
+            break;
+        case IDC_MOVE_Y_NEG:
+            nudge_selected_position(app, 1, -kEditorMoveStep);
+            break;
+        case IDC_MOVE_Y_POS:
+            nudge_selected_position(app, 1, kEditorMoveStep);
+            break;
+        case IDC_MOVE_Z_NEG:
+            nudge_selected_position(app, 2, -kEditorMoveStep);
+            break;
+        case IDC_MOVE_Z_POS:
+            nudge_selected_position(app, 2, kEditorMoveStep);
+            break;
+        default:
+            break;
+        }
+    }
+
+    LRESULT CALLBACK editor_panel_proc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param)
+    {
+        (void)l_param;
+
+        switch (message)
+        {
+        case WM_COMMAND:
+            if (g_editor_panel_app)
+            {
+                handle_editor_panel_command(*g_editor_panel_app, LOWORD(w_param), HIWORD(w_param));
+            }
+            return 0;
+        case WM_CLOSE:
+            ShowWindow(hwnd, SW_HIDE);
+            return 0;
+        default:
+            return DefWindowProcA(hwnd, message, w_param, l_param);
+        }
+    }
+
+    bool create_editor_panel(EditorApp& app)
+    {
+        WNDCLASSA window_class = {};
+        HINSTANCE instance = GetModuleHandleA(NULL);
+        HWND window;
+
+        if (g_editor_panel.window)
+        {
+            g_editor_panel_app = &app;
+            return true;
+        }
+
+        window_class.lpfnWndProc = editor_panel_proc;
+        window_class.hInstance = instance;
+        window_class.lpszClassName = "TropicLevelEditorPanel";
+        window_class.hCursor = LoadCursor(NULL, IDC_ARROW);
+        window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
+        RegisterClassA(&window_class);
+
+        window = CreateWindowExA(0,
+                                 window_class.lpszClassName,
+                                 "Tropic Level Editor Tools",
+                                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                 40,
+                                 40,
+                                 560,
+                                 860,
+                                 NULL,
+                                 NULL,
+                                 instance,
+                                 NULL);
+        if (!window)
+        {
+            return false;
+        }
+
+        g_editor_panel.window = window;
+        g_editor_panel_app = &app;
+
+        create_label(window, "Game Title", 12, 12, 90, 20);
+        g_editor_panel.metadata_game_title = create_edit(window, IDC_METADATA_GAME_TITLE, 110, 10, 180, 24);
+        create_label(window, "Level Name", 12, 42, 90, 20);
+        g_editor_panel.metadata_level_name = create_edit(window, IDC_METADATA_LEVEL_NAME, 110, 40, 180, 24);
+        create_label(window, "Music File", 300, 12, 80, 20);
+        g_editor_panel.metadata_music_path = create_edit(window, IDC_METADATA_MUSIC_PATH, 378, 10, 108, 24);
+        g_editor_panel.browse_music_button = create_button(window, "Browse...", IDC_BROWSE_MUSIC, 492, 10, 68, 24);
+        create_label(window, "Play Speed", 300, 42, 80, 20);
+        g_editor_panel.metadata_play_speed = create_edit(window, IDC_METADATA_PLAY_SPEED, 390, 40, 80, 24);
+
+        create_label(window, "Objects", 12, 80, 90, 20);
+        g_editor_panel.object_list = create_listbox(window, IDC_OBJECT_LIST, 12, 104, 250, 240);
+        g_editor_panel.add_platform_button = create_button(window, "Add Platform", IDC_ADD_PLATFORM, 12, 352, 118, 28);
+        g_editor_panel.add_spike_button = create_button(window, "Add Spike", IDC_ADD_SPIKE, 144, 352, 118, 28);
+        g_editor_panel.add_jumppad_button = create_button(window, "Add JumpPad", IDC_ADD_JUMPPAD, 12, 386, 118, 28);
+        g_editor_panel.add_event_button = create_button(window, "Add Event", IDC_ADD_EVENT, 144, 386, 118, 28);
+        g_editor_panel.duplicate_button = create_button(window, "Duplicate", IDC_DUPLICATE_OBJECT, 12, 420, 118, 28);
+        g_editor_panel.delete_button = create_button(window, "Delete", IDC_DELETE_OBJECT, 144, 420, 118, 28);
+        g_editor_panel.save_button = create_button(window, "Save", IDC_SAVE_LEVEL, 12, 454, 76, 28);
+        g_editor_panel.save_as_button = create_button(window, "Save As...", IDC_SAVE_AS_LEVEL, 96, 454, 82, 28);
+        g_editor_panel.open_button = create_button(window, "Open...", IDC_OPEN_LEVEL, 186, 454, 76, 28);
+        g_editor_panel.reload_button = create_button(window, "Reload", IDC_RELOAD_LEVEL, 12, 488, 118, 28);
+        g_editor_panel.preview_button = create_button(window, "Enter Preview", IDC_TOGGLE_PREVIEW, 144, 488, 118, 28);
+
+        create_label(window, "Selected Object", 286, 80, 120, 20);
+        create_label(window, "UID", 286, 106, 50, 20);
+        g_editor_panel.uid_edit = create_edit(window, IDC_UID_EDIT, 330, 104, 150, 24);
+        g_editor_panel.auto_uid_button = create_button(window, "Auto UID", IDC_AUTO_UID, 486, 104, 60, 24);
+
+        create_label(window, "Position", 286, 140, 60, 20);
+        for (int i = 0; i < 3; ++i)
+        {
+            create_label(window, i == 0 ? "X" : i == 1 ? "Y" : "Z", 350 + i * 64, 140, 16, 20);
+            g_editor_panel.position_edits[i] = create_edit(window, IDC_POSITION_X + i, 366 + i * 64, 138, 54, 24);
+        }
+        g_editor_panel.move_buttons[0] = create_button(window, "X-", IDC_MOVE_X_NEG, 350, 166, 36, 22);
+        g_editor_panel.move_buttons[1] = create_button(window, "X+", IDC_MOVE_X_POS, 388, 166, 36, 22);
+        g_editor_panel.move_buttons[2] = create_button(window, "Y-", IDC_MOVE_Y_NEG, 430, 166, 36, 22);
+        g_editor_panel.move_buttons[3] = create_button(window, "Y+", IDC_MOVE_Y_POS, 468, 166, 36, 22);
+        g_editor_panel.move_buttons[4] = create_button(window, "Z-", IDC_MOVE_Z_NEG, 510, 166, 36, 22);
+        g_editor_panel.move_buttons[5] = create_button(window, "Z+", IDC_MOVE_Z_POS, 548, 166, 36, 22);
+
+        create_label(window, "Scale", 286, 200, 60, 20);
+        for (int i = 0; i < 3; ++i)
+        {
+            create_label(window, i == 0 ? "X" : i == 1 ? "Y" : "Z", 350 + i * 64, 200, 16, 20);
+            g_editor_panel.scale_edits[i] = create_edit(window, IDC_SCALE_X + i, 366 + i * 64, 198, 54, 24);
+        }
+
+        create_label(window, "Rotation", 286, 234, 60, 20);
+        for (int i = 0; i < 3; ++i)
+        {
+            create_label(window, i == 0 ? "X" : i == 1 ? "Y" : "Z", 350 + i * 64, 234, 16, 20);
+            g_editor_panel.rotation_edits[i] = create_edit(window, IDC_ROTATION_X + i, 366 + i * 64, 232, 54, 24);
+        }
+
+        create_label(window, "Event Settings", 286, 276, 120, 20);
+        create_label(window, "Action", 286, 304, 50, 20);
+        g_editor_panel.event_action_combo = create_combo(window, IDC_EVENT_ACTION, 346, 300, 120, 200);
+        create_label(window, "Trigger", 286, 336, 50, 20);
+        g_editor_panel.event_trigger_combo = create_combo(window, IDC_EVENT_TRIGGER, 346, 332, 120, 120);
+        g_editor_panel.event_once_check = create_checkbox(window, "Trigger Once", IDC_EVENT_ONCE, 474, 332, 110, 24);
+
+        create_label(window, "Target UID", 286, 368, 60, 20);
+        g_editor_panel.event_target_uid_edit = create_edit(window, IDC_EVENT_TARGET_UID, 360, 366, 186, 24);
+        create_label(window, "Function", 286, 400, 60, 20);
+        g_editor_panel.event_function_edit = create_edit(window, IDC_EVENT_FUNCTION, 360, 398, 186, 24);
+
+        create_label(window, "Gravity", 286, 434, 60, 20);
+        for (int i = 0; i < 3; ++i)
+        {
+            create_label(window, i == 0 ? "X" : i == 1 ? "Y" : "Z", 350 + i * 64, 434, 16, 20);
+            g_editor_panel.event_gravity_edits[i] = create_edit(window, IDC_EVENT_GRAVITY_X + i, 366 + i * 64, 432, 54, 24);
+        }
+
+        create_label(window, "Axis", 286, 468, 60, 20);
+        for (int i = 0; i < 3; ++i)
+        {
+            create_label(window, i == 0 ? "X" : i == 1 ? "Y" : "Z", 350 + i * 64, 468, 16, 20);
+            g_editor_panel.event_axis_edits[i] = create_edit(window, IDC_EVENT_AXIS_X + i, 366 + i * 64, 466, 54, 24);
+        }
+
+        create_label(window, "Degrees", 286, 502, 60, 20);
+        g_editor_panel.event_degrees_edit = create_edit(window, IDC_EVENT_DEGREES, 346, 500, 70, 24);
+        create_label(window, "Speed", 424, 502, 46, 20);
+        g_editor_panel.event_speed_edit = create_edit(window, IDC_EVENT_SPEED, 470, 500, 76, 24);
+        create_label(window, "Duration", 286, 534, 60, 20);
+        g_editor_panel.event_duration_edit = create_edit(window, IDC_EVENT_DURATION, 346, 532, 70, 24);
+
+        g_editor_panel.apply_button = create_button(window, "Apply Changes", IDC_APPLY_CHANGES, 286, 572, 260, 30);
+        create_label(window, "Tip: edit numbers directly or use X/Y/Z move buttons. [ and ] still nudge the active tool axis.", 12, 540, 534, 38);
+
+        for (size_t i = 0; i < sizeof(kEditorActionLabels) / sizeof(kEditorActionLabels[0]); ++i)
+        {
+            SendMessageA(g_editor_panel.event_action_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kEditorActionLabels[i]));
+        }
+        for (size_t i = 0; i < sizeof(kEditorTriggerLabels) / sizeof(kEditorTriggerLabels[0]); ++i)
+        {
+            SendMessageA(g_editor_panel.event_trigger_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kEditorTriggerLabels[i]));
+        }
+
+        app.ui_dirty = true;
+        return true;
+    }
+
+    void destroy_editor_panel()
+    {
+        if (g_editor_panel.window)
+        {
+            DestroyWindow(g_editor_panel.window);
+        }
+        std::memset(&g_editor_panel, 0, sizeof(g_editor_panel));
+        g_editor_panel_app = NULL;
+    }
+
+    void pump_editor_panel_messages(EditorApp& app)
+    {
+        MSG message;
+        g_editor_panel_app = &app;
+
+        while (PeekMessageA(&message, NULL, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(&message);
+            DispatchMessageA(&message);
+        }
+
+        sync_panel_from_app(app);
+    }
+#else
+    void mark_ui_dirty(EditorApp& app)
+    {
+        app.ui_dirty = true;
+    }
+
+    bool create_editor_panel(EditorApp& app)
+    {
+        app.ui_dirty = false;
+        return true;
+    }
+
+    void destroy_editor_panel()
+    {
+    }
+
+    void pump_editor_panel_messages(EditorApp& app)
+    {
+        app.ui_dirty = false;
+    }
+#endif
 }
 
 int main(int argc, char* argv[])
@@ -1358,6 +2735,7 @@ int main(int argc, char* argv[])
     app.orbit_yaw_degrees = 45.0f;
     app.orbit_pitch_degrees = 25.0f;
     app.orbit_distance = 28.0f;
+    app.ui_dirty = true;
     app.level_path = argc > 1 ? argv[1] : std::string();
 
     if (app.level_path.empty())
@@ -1388,11 +2766,16 @@ int main(int argc, char* argv[])
 
     print_controls_once(app);
 
+    if (!create_editor_panel(app))
+    {
+        std::fprintf(stderr, "Failed to create the editor tool panel.\n");
+    }
+
     while (running)
     {
         double frame_time = Tropic_getTime();
         double last_frame_time = frame_time;
-        bool inner_loop_running = true;
+        bool requested_switch = false;
         std::memset(g_keys, 0, sizeof(g_keys));
         std::memset(g_prev_keys, 0, sizeof(g_prev_keys));
 
@@ -1400,11 +2783,13 @@ int main(int argc, char* argv[])
         {
             std::fprintf(stderr, "Failed to initialize level editor runtime.\n");
             shutdown_engine(app);
+            destroy_editor_panel();
             return 1;
         }
 
         while (Tropic_Update(app.engine))
         {
+            pump_editor_panel_messages(app);
             double current_time = Tropic_getTime();
             float delta_time = static_cast<float>(current_time - last_frame_time);
             last_frame_time = current_time;
@@ -1433,6 +2818,12 @@ int main(int argc, char* argv[])
 
         shutdown_engine(app);
 
+        if (app.exit_requested)
+        {
+            running = false;
+            break;
+        }
+
         if (requested_switch)
         {
             app.pending_mode_switch = false;
@@ -1442,6 +2833,8 @@ int main(int argc, char* argv[])
 
         running = false;
     }
+
+    destroy_editor_panel();
 
     return 0;
 }

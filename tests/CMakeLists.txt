@@ -9,6 +9,11 @@ endif()
 # Create the test executable
 add_executable(tropic_test ${TEST_SOURCES})
 
+file(TO_CMAKE_PATH "${CMAKE_SOURCE_DIR}" TROPIC_SOURCE_DIR_CMAKE)
+target_compile_definitions(tropic_test PRIVATE
+	TROPIC_SOURCE_DIR="${TROPIC_SOURCE_DIR_CMAKE}"
+)
+
 # Compile options for the test
 if(MSVC)
 	target_compile_options(tropic_test PRIVATE /W4)
@@ -21,12 +26,8 @@ endif()
 # Link it to the engine library created in the parent directory
 target_link_libraries(tropic_test PRIVATE tropic)
 
-# Assets are needed on every platform
-add_custom_command(TARGET tropic_test POST_BUILD
-	COMMAND ${CMAKE_COMMAND} -E copy_directory
-		${CMAKE_SOURCE_DIR}/assets
-		$<TARGET_FILE_DIR:tropic_test>/assets
-)
+# Assets are needed on every platform and should refresh even when only data files change
+tropic_sync_assets_for_target(tropic_test)
 
 # Only needed if vector is actually a Windows DLL build
 if(WIN32)

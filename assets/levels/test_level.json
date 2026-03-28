@@ -2,10 +2,12 @@
   "metadata": {
     "game_title": "Cyclone",
     "level_name": "Level 1",
+    "music": "Redarkted-Skyebrows.mp3",
     "play_speed": 1.0
   },
   "platforms": [
     {
+      "uid": "platform_001",
       "pos": {
         "x": 0.0,
         "y": -2.0,
@@ -26,6 +28,7 @@
       }
     },
     {
+      "uid": "platform_002",
       "pos": {
         "x": 0.0,
         "y": -1.0,
@@ -45,11 +48,34 @@
         "z": 0.0
       }
     },
+    // add another platform further down the level to test event triggering
     {
+      "uid": "platform_003",
+      "pos": {
+        "x": 0.0,
+        "y": -1.0,
+        "z": -30.0,
+        "width": 8.0,
+        "height": 1.0,
+        "length": 8.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "rot": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      }
+    },
+    {
+      "uid": "platform_004",
       "pos": {
         "x": 0.0,
         "y": 0.0,
-        "z": -30.0,
+        "z": -40.0,
         "width": 8.0,
         "height": 1.0,
         "length": 8.0
@@ -68,6 +94,7 @@
   ],
   "spikes": [
     {
+      "uid": "spike_001",
       "pos": {
         "x": 10.0,
         "y": -1.0,
@@ -90,6 +117,7 @@
   ],
   "jumppads": [
     {
+      "uid": "jumppad_001",
       "pos": {
         "x": -15.0,
         "y": -1.0,
@@ -110,23 +138,63 @@
       }
     }
   ],
-  //"events": [
-  //  {
-  //    "pos": {
-  //      "x": 0.0,
-  //      "y": 2.0,
-  //      "z": -18.0
-  //    },
-  //    "scale": {
-  //      "x": 4.0,
-  //      "y": 3.0,
-  //      "z": 4.0
-  //    },
-  //    "rot": {
-  //      "x": 0.0,
-  //      "y": 0.0,
-  //      "z": 0.0
-  //    }
-  //  }
-  //]
+  "events": [
+    {
+      "uid": "event_001",
+      "pos": {
+        "x": 0.0,
+        "y": 2.0,
+        "z": -18.0,
+        "width": 4.0,
+        "height": 3.0,
+        "length": 4.0
+      },
+      "scale": {
+        "x": 4.0,
+        "y": 3.0,
+        "z": 4.0
+      },
+      "rot": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "event_type": "gravity_flip",
+      "trigger": "enter",
+      "once": true
+    }
+    //,
+    //{
+    //  "uid": "event_002",
+    //  "pos": {
+    //    "x": 0.0,
+    //    "y": 2.0,
+    //    "z": -28.0,
+    //    "width": 4.0,
+    //    "height": 3.0,
+    //    "length": 4.0
+    //  },
+    //  "scale": {
+    //    "x": 4.0,
+    //    "y": 3.0,
+    //    "z": 4.0
+    //  },
+    //  "rot": {
+    //    "x": 0.0,
+    //    "y": 0.0,
+    //    "z": 0.0
+    //  },
+    //  "event_type": "world_spin",
+    //  "trigger": "enter",
+    //  "once": true,
+    //  "axis": {
+    //    "x": 0.0,
+    //    "y": 0.0,
+    //    "z": 1.0
+    //  },
+    //  "degrees": 90.0,
+    //  "speed": 180.0,
+    //  "target_uid": "self"
+    //}
+  ]
 }

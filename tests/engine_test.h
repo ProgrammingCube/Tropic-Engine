@@ -54,11 +54,20 @@ typedef struct sEngineTestPlatformCollisionState
     EngineTestMaterialUniforms *material_uniforms;
 } EngineTestPlatformCollisionState;
 
-typedef struct sEngineTestGravityTriggerState
+typedef struct sEngineTestEventTriggerState
 {
     ObjectID player_id;
-    bool triggered;
-} EngineTestGravityTriggerState;
+} EngineTestEventTriggerState;
+
+typedef bool (*EngineTestCustomEventHandlerFn)(TropicID engine_id,
+                                               Object *event_object,
+                                               const TropicCollisionEvent *event);
+
+typedef struct sEngineTestCustomEventBinding
+{
+    const char *name;
+    EngineTestCustomEventHandlerFn handler;
+} EngineTestCustomEventBinding;
 
 #define ENGINE_TEST_GHOST_COUNT 8
 #define ENGINE_TEST_GHOST_SAMPLE_COUNT 48
@@ -95,7 +104,7 @@ static EngineTestMaterialUniforms _platform_material_uniforms = {
     1.0f,
 };
 static EngineTestPlatformCollisionState _platform_collision_state = { 0 };
-static EngineTestGravityTriggerState _gravity_trigger_state = { 0 };
+static EngineTestEventTriggerState _event_trigger_state = { 0 };
 static EngineTestPlayerTrailState _player_trail_state = { 0 };
 
 static float _clampf(float value, float min_value, float max_value)
@@ -120,17 +129,60 @@ static void _platform_collision_callback(TropicID engine_id,
                                                     3.0f);
 }
 
-static void _gravity_trigger_callback(TropicID engine_id,
+static bool _custom_event_invert_gravity(TropicID engine_id,
+    Object* event_object,
+    const TropicCollisionEvent* event)
+{
+    (void)event_object;
+    (void)event;
+    return Tropic_invertGravity(engine_id, Tropic_getCurrentSceneID(engine_id));
+}
+
+static bool _custom_event_spin_camera_90(TropicID engine_id,
+    Object* event_object,
+    const TropicCollisionEvent* event)
+{
+    CameraID camera_id = Tropic_getActiveCameraId(engine_id);
+    vec3 axis = { 0.0f, 0.0f, 1.0f };
+    (void)event_object;
+    (void)event;
+    if (camera_id == 0) return false;
+    return Tropic_spinCamera(engine_id, camera_id, axis, 90.0f, 0.5f);
+}
+
+static bool _dispatch_custom_event(TropicID engine_id,
+    Object* event_object,
+    const TropicCollisionEvent* event)
+{
+    static const EngineTestCustomEventBinding handlers[] = {
+        { "invert_gravity", _custom_event_invert_gravity },
+        { "spin_camera_90", _custom_event_spin_camera_90 },
+    };
+
+    if (!event_object || !event || event_object->event.action_type != TROPIC_EVENT_ACTION_CUSTOM) return false;
+
+    for (size_t i = 0; i < sizeof(handlers) / sizeof(handlers[0]); ++i) {
+        if (strcmp(event_object->event.custom_function, handlers[i].name) == 0) {
+            return handlers[i].handler(engine_id, event_object, event);
+        }
+    }
+
+    return false;
+}
+
+static void _event_trigger_callback(TropicID engine_id,
     const TropicCollisionEvent* event,
     void* user_data)
 {
-    EngineTestGravityTriggerState* state = (EngineTestGravityTriggerState*)user_data;
+    EngineTestEventTriggerState* state = (EngineTestEventTriggerState*)user_data;
+    Object* event_object;
 
-    if (!state || !event) return;
-    if (state->triggered || event->phase != TROPIC_COLLISION_ENTER || event->other_id != state->player_id) return;
+    if (!state || !event || event->other_id != state->player_id) return;
+    if (!Tropic_shouldTriggerObjectEvent(engine_id, event->self_id, event)) return;
+    if (Tropic_executeObjectBuiltinEvent(engine_id, event->self_id)) return;
 
-    state->triggered = true;
-    (void)Tropic_invertGravity(engine_id, Tropic_getCurrentSceneID(engine_id));
+    event_object = Tropic_getObject(engine_id, event->self_id);
+    (void)_dispatch_custom_event(engine_id, event_object, event);
 }
 
 static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
@@ -141,8 +193,7 @@ static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
 
     _platform_collision_state.player_id = player;
     _platform_collision_state.material_uniforms = &_platform_material_uniforms;
-    _gravity_trigger_state.player_id = player;
-    _gravity_trigger_state.triggered = false;
+    _event_trigger_state.player_id = player;
 
     for (size_t i = 0; i < vector_size(scene->entities); ++i)
     {
@@ -164,8 +215,8 @@ static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
         {
             if (!Tropic_setObjectCollisionCallback(engine_id,
                 object->id,
-                _gravity_trigger_callback,
-                &_gravity_trigger_state))
+                _event_trigger_callback,
+                &_event_trigger_state))
             {
                 return false;
             }
@@ -178,6 +229,12 @@ static bool _setup_test_collision_callbacks(TropicID engine_id, ObjectID player)
 static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
 {
     static const char *vertex_candidates[] = {
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple_round_soft.vert",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple_round.vert",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple.vert",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume.vert",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_neon.vert",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_normals.vert",
         "assets/shaders/platform_volume_ripple_round_soft.vert",
         "assets/shaders/platform_volume_ripple_round.vert",
         "assets/shaders/platform_volume_ripple.vert",
@@ -198,6 +255,12 @@ static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
         "../../assets/shaders/platform_normals.vert",
     };
     static const char *fragment_candidates[] = {
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple_round_soft.frag",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple_round.frag",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume_ripple.frag",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_volume.frag",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_neon.frag",
+        TROPIC_SOURCE_DIR "/assets/shaders/platform_normals.frag",
         "assets/shaders/platform_volume_ripple_round_soft.frag",
         "assets/shaders/platform_volume_ripple_round.frag",
         "assets/shaders/platform_volume_ripple.frag",
@@ -230,11 +293,13 @@ static bool _load_test_volume_shader(TropicID engine_id, ShaderID *out_shader)
 static bool _load_test_player_shader(TropicID engine_id, ShaderID *out_shader)
 {
     static const char *vertex_candidates[] = {
+        TROPIC_SOURCE_DIR "/assets/shaders/player_volume_ripple_round_soft.vert",
         "assets/shaders/player_volume_ripple_round_soft.vert",
         "../assets/shaders/player_volume_ripple_round_soft.vert",
         "../../assets/shaders/player_volume_ripple_round_soft.vert",
     };
     static const char *fragment_candidates[] = {
+        TROPIC_SOURCE_DIR "/assets/shaders/player_volume_ripple_round_soft.frag",
         "assets/shaders/player_volume_ripple_round_soft.frag",
         "../assets/shaders/player_volume_ripple_round_soft.frag",
         "../../assets/shaders/player_volume_ripple_round_soft.frag",
@@ -532,6 +597,7 @@ static void _key_callback(GLFWwindow* window, int key, int scancode, int action,
 static bool _load_test_level(TropicID engine_id, ObjectSpec** out_objects, int* out_num_objects)
 {
     const char* level_candidates[] = {
+        TROPIC_SOURCE_DIR "/assets/levels/test_level.json",
         "assets/levels/test_level.json",
         "../assets/levels/test_level.json",
         "../../assets/levels/test_level.json",

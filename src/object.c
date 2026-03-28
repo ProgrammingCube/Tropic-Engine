@@ -3,6 +3,7 @@
 #include "object.h"
 
 #include <math.h>
+#include <string.h>
 
 void Tropic_releaseObjectPayload(void *payload)
 {
@@ -27,6 +28,29 @@ static void _Tropic_setDefaultColliderHalfExtents(Object *object)
     object->collider.half_extents[0] = fabsf(object->scale[0]);
     object->collider.half_extents[1] = fabsf(object->scale[1]);
     object->collider.half_extents[2] = fabsf(object->scale[2]);
+}
+
+static bool _Tropic_eventPhaseMatches(TropicEventTriggerMode trigger_mode,
+                                      TropicCollisionPhase collision_phase)
+{
+    switch (trigger_mode)
+    {
+    case TROPIC_EVENT_TRIGGER_STAY:
+        return collision_phase == TROPIC_COLLISION_STAY;
+    case TROPIC_EVENT_TRIGGER_EXIT:
+        return collision_phase == TROPIC_COLLISION_EXIT;
+    case TROPIC_EVENT_TRIGGER_ENTER:
+    default:
+        return collision_phase == TROPIC_COLLISION_ENTER;
+    }
+}
+
+static float _Tropic_getEventDurationSeconds(const TropicEventSpec *event_spec)
+{
+    if (!event_spec) return 0.0f;
+    if (event_spec->duration_seconds > 0.0f) return event_spec->duration_seconds;
+    if (event_spec->speed > 0.0f) return fabsf(event_spec->degrees) / event_spec->speed;
+    return 0.0f;
 }
 
 // perhaps change to Tropic_addObject and have a separate, true, Tropic_newObject that adds a generic object?
@@ -150,6 +174,23 @@ ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type )
     return 0;
 }
 
+ObjectID Tropic_findObjectByUid( TropicID engine_id, const char *uid )
+{
+    Tropic *self = Tropic_getById(engine_id);
+    Scene *scene = Tropic_getCurrentScenePtr(self);
+
+    if (!self || !scene || !uid || uid[0] == '\0') return 0;
+
+    for (size_t i = 0; i < vector_size(scene->entities); i++) {
+        Object *object = Tropic_getObject(engine_id, scene->entities[i]);
+        if (object && strcmp(object->uid, uid) == 0) {
+            return object->id;
+        }
+    }
+
+    return 0;
+}
+
 bool Tropic_setObjectPosition( TropicID engine_id, ObjectID id, vec3 position )
 {
     Object *o = Tropic_getObject(engine_id, id);
@@ -237,4 +278,65 @@ bool Tropic_scaleObject( TropicID engine_id, ObjectID id, vec3 scale )
     o->collider.half_extents[1] = fabsf(o->collider.half_extents[1]);
     o->collider.half_extents[2] = fabsf(o->collider.half_extents[2]);
     return true;
+}
+
+bool Tropic_shouldTriggerObjectEvent( TropicID engine_id,
+                                      ObjectID event_object_id,
+                                      const TropicCollisionEvent *collision_event )
+{
+    Object *object = Tropic_getObject(engine_id, event_object_id);
+
+    if (!object || object->type != TYPE_EVENT || !collision_event) return false;
+    if (!_Tropic_eventPhaseMatches(object->event.trigger_mode, collision_event->phase)) return false;
+    if (object->event.trigger_once && object->event.has_fired) return false;
+
+    if (object->event.trigger_once) {
+        object->event.has_fired = true;
+    }
+
+    return true;
+}
+
+bool Tropic_executeObjectBuiltinEvent( TropicID engine_id, ObjectID event_object_id )
+{
+    Tropic *self = Tropic_getById(engine_id);
+    Scene *scene = Tropic_getCurrentScenePtr(self);
+    Object *object = Tropic_getObject(engine_id, event_object_id);
+    float duration_seconds;
+
+    if (!self || !scene || !object || object->type != TYPE_EVENT) return false;
+
+    duration_seconds = _Tropic_getEventDurationSeconds(&object->event);
+
+    switch (object->event.action_type)
+    {
+    case TROPIC_EVENT_ACTION_GRAVITY_SET:
+        return Tropic_setGravity(engine_id, scene->id, object->event.gravity);
+    case TROPIC_EVENT_ACTION_GRAVITY_FLIP:
+        return Tropic_invertGravity(engine_id, scene->id);
+    case TROPIC_EVENT_ACTION_WORLD_SPIN:
+    {
+        ObjectID pivot_object_id = Tropic_findObjectByUid(engine_id, object->event.target_uid);
+        if (pivot_object_id == 0) return false;
+        return Tropic_spinWorldAroundObject(engine_id,
+                                            pivot_object_id,
+                                            object->event.axis,
+                                            object->event.degrees,
+                                            duration_seconds);
+    }
+    case TROPIC_EVENT_ACTION_CAMERA_SPIN:
+    {
+        CameraID camera_id = Tropic_getActiveCameraId(engine_id);
+        if (camera_id == 0) return false;
+        return Tropic_spinCamera(engine_id,
+                                 camera_id,
+                                 object->event.axis,
+                                 object->event.degrees,
+                                 duration_seconds);
+    }
+    case TROPIC_EVENT_ACTION_NONE:
+    case TROPIC_EVENT_ACTION_CUSTOM:
+    default:
+        return false;
+    }
 }

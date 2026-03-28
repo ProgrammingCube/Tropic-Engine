@@ -198,9 +198,12 @@ void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
     for (int i = 0; i < num_objects; i++) {
         Object proto = {0};
         proto.type = objects[i].type_code;
+        memcpy(proto.uid, objects[i].uid, sizeof(proto.uid));
         memcpy(proto.pos, objects[i].position, sizeof(vec3));
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
+        memcpy(&proto.event, &objects[i].event, sizeof(TropicEventSpec));
+        proto.event.has_fired = false;
 
         (void)Tropic_newObject( engine, &proto);
     }

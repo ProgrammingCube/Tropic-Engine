@@ -10,6 +10,7 @@ typedef struct sLevelSpec
 {
     char *game_title;
     char *level_name;
+    char *music_path;
     double play_speed;
     size_t platform_count;
     ObjectSpec *platforms;

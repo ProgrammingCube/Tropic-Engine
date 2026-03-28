@@ -26,11 +26,7 @@ endif()
 
 target_link_libraries(tropic_level_editor PRIVATE tropic)
 
-add_custom_command(TARGET tropic_level_editor POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:tropic_level_editor>/assets
-)
+tropic_sync_assets_for_target(tropic_level_editor)
 
 if(WIN32)
     add_custom_command(TARGET tropic_level_editor POST_BUILD

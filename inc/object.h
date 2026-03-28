@@ -47,6 +47,42 @@ typedef enum eTropicCollisionPhase
     TROPIC_COLLISION_EXIT,
 } TropicCollisionPhase;
 
+#define TROPIC_OBJECT_TYPE_NAME_MAX 16
+#define TROPIC_OBJECT_UID_MAX 64
+#define TROPIC_EVENT_NAME_MAX 64
+
+typedef enum eTropicEventActionType
+{
+    TROPIC_EVENT_ACTION_NONE,
+    TROPIC_EVENT_ACTION_GRAVITY_SET,
+    TROPIC_EVENT_ACTION_GRAVITY_FLIP,
+    TROPIC_EVENT_ACTION_WORLD_SPIN,
+    TROPIC_EVENT_ACTION_CAMERA_SPIN,
+    TROPIC_EVENT_ACTION_CUSTOM,
+} TropicEventActionType;
+
+typedef enum eTropicEventTriggerMode
+{
+    TROPIC_EVENT_TRIGGER_ENTER,
+    TROPIC_EVENT_TRIGGER_STAY,
+    TROPIC_EVENT_TRIGGER_EXIT,
+} TropicEventTriggerMode;
+
+typedef struct sTropicEventSpec
+{
+    TropicEventActionType action_type;
+    TropicEventTriggerMode trigger_mode;
+    bool trigger_once;
+    bool has_fired;
+    vec3 gravity;
+    vec3 axis;
+    float degrees;
+    float speed;
+    float duration_seconds;
+    char target_uid[TROPIC_OBJECT_UID_MAX];
+    char custom_function[TROPIC_EVENT_NAME_MAX];
+} TropicEventSpec;
+
 typedef struct sTropicCollisionEvent
 {
     ObjectID self_id;
@@ -82,13 +118,15 @@ typedef struct sTropicPhysicsBody
 
 typedef struct sObjectSpec
 {
-    char type[16]; // e.g. "platform", "spike", "jumppad", "event"
+    char type[TROPIC_OBJECT_TYPE_NAME_MAX]; // e.g. "platform", "spike", "jumppad", "event"
     /* Engine-friendly enum for object type. Filled by level conversion code so
      * the engine does not need to parse string names. */
     ObjectType type_code;
+    char uid[TROPIC_OBJECT_UID_MAX];
     vec3 position;
     vec3 scale;
     vec3 rotation;
+    TropicEventSpec event;
 } ObjectSpec;
 
 struct sObject
@@ -98,9 +136,11 @@ struct sObject
     MaterialID material_id;
     ObjectType type;
     bool active;
+    char uid[TROPIC_OBJECT_UID_MAX];
     Position pos;
     Scale scale;
     Rotation rot;
+    TropicEventSpec event;
     TropicCollider collider;
     TropicPhysicsBody body;
     TropicCollisionCallback collision_callback;
@@ -118,6 +158,7 @@ SceneID  Tropic_getObjectScene( ObjectID id );
 TropicID Tropic_getObjectEngine( ObjectID id );
 
 ObjectID Tropic_findFirstObjectOfType( TropicID engine_id, ObjectType type );
+ObjectID Tropic_findObjectByUid( TropicID engine_id, const char *uid );
 
 bool Tropic_setObjectPosition(TropicID engine_id, ObjectID id, vec3 position);
 bool Tropic_setObjectRotation(TropicID engine_id, ObjectID id, vec3 rotation);
@@ -135,5 +176,9 @@ bool Tropic_getObjectScale(TropicID engine_id, ObjectID id, vec3 scale);
 bool Tropic_translateObject( TropicID engine_id, ObjectID id, vec3 translation );
 bool Tropic_rotateObject( TropicID engine_id, ObjectID id, vec3 rotation );
 bool Tropic_scaleObject( TropicID engine_id, ObjectID id, vec3 scale );
+bool Tropic_shouldTriggerObjectEvent( TropicID engine_id,
+                                      ObjectID event_object_id,
+                                      const TropicCollisionEvent *collision_event );
+bool Tropic_executeObjectBuiltinEvent( TropicID engine_id, ObjectID event_object_id );
 
 #endif /* OBJECT_H */

@@ -6,6 +6,7 @@ typedef struct sTropicGameState
     // Define the structure of your game state here
     char *game_title;
     char *level_name;
+    char *music_path;
     float play_speed;
     // Add more fields as needed
 } TropicGameState;

@@ -6,13 +6,15 @@
       "type": "default",
       "project": "CMakeLists.txt",
       "projectTarget": "tropic_level_editor.exe (editor\\Debug\\tropic_level_editor.exe)",
-      "name": "tropic_level_editor.exe (editor\\Debug\\tropic_level_editor.exe)"
+      "name": "tropic_level_editor.exe (editor\\Debug\\tropic_level_editor.exe)",
+      "currentDir": "${workspaceRoot}\\build\\editor\\Debug"
     },
     {
       "type": "default",
       "project": "CMakeLists.txt",
       "projectTarget": "tropic_test.exe (tests\\Debug\\tropic_test.exe)",
-      "name": "tropic_test.exe (tests\\Debug\\tropic_test.exe)"
+      "name": "tropic_test.exe (tests\\Debug\\tropic_test.exe)",
+      "currentDir": "${workspaceRoot}\\build\\tests\\Debug"
     }
   ]
 }
