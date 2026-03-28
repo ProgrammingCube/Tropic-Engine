@@ -19,6 +19,7 @@ typedef Handle64 TextureID;
 typedef Handle64 CameraID;
 typedef Handle64 ShaderID;
 typedef Handle64 MaterialID;
+typedef Handle64 AudioID;
 
 /* Scoped ID layout: [scene:32][local:32] */
 static inline uint64_t Tropic_packScopedID(SceneID scene_id, Handle local_id)

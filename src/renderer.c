@@ -52,6 +52,8 @@ static void _Renderer_drawFpsOverlay(TropicID engine_id, Tropic *self)
     int origin_x;
     int origin_y;
     int fps;
+    int ten_thousands;
+    int thousands;
     int hundreds;
     int tens;
     int ones;
@@ -93,12 +95,20 @@ static void _Renderer_drawFpsOverlay(TropicID engine_id, Tropic *self)
 
     fps = self->fps_overlay_displayed_fps;
     if (fps < 0) fps = 0;
-    if (fps > 999) fps = 999;
+    //if (fps > 999) fps = 999;
 
+    ten_thousands = (fps / 10000) % 10;
+    thousands = (fps / 1000) % 10;
     hundreds = (fps / 100) % 10;
     tens = (fps / 10) % 10;
     ones = fps % 10;
 
+    if ( fps >= 10000) {
+        _Renderer_overlayDrawDigit(origin_x, origin_y, scale, ten_thousands, 0.20f, 0.85f, 1.00f);
+	}
+    if ( fps >= 1000) {
+        _Renderer_overlayDrawDigit(origin_x + spacing, origin_y, scale, thousands, 0.20f, 0.85f, 1.00f);
+	}
     if (fps >= 100) {
         _Renderer_overlayDrawDigit(origin_x + spacing, origin_y, scale, hundreds, 0.20f, 0.85f, 1.00f);
     }

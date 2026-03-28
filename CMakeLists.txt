@@ -1,11 +1,15 @@
 cmake_minimum_required(VERSION 3.14)
-project(tropic_engine LANGUAGES C)
+project(tropic_engine LANGUAGES C CXX)
 
-set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT tropic_test)
+set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT tropic_level_editor)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
+
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Dependencies
 find_package(cJSON REQUIRED)
@@ -26,7 +30,7 @@ set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build dependencies as static libraries" FO
 
 FetchContent_Declare(
 	CVector
-	GIT_REPOSITORY http://192.168.1.122:3001/ProgrammingCube/c_vector.git
+	GIT_REPOSITORY https://github.com/ProgrammingCube/c_vector.git
 )
 FetchContent_MakeAvailable(CVector)
 

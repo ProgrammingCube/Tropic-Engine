@@ -1,0 +1,18 @@
+{
+  "version": "0.2.1",
+  "defaults": {},
+  "configurations": [
+    {
+      "type": "default",
+      "project": "CMakeLists.txt",
+      "projectTarget": "tropic_level_editor.exe (editor\\Debug\\tropic_level_editor.exe)",
+      "name": "tropic_level_editor.exe (editor\\Debug\\tropic_level_editor.exe)"
+    },
+    {
+      "type": "default",
+      "project": "CMakeLists.txt",
+      "projectTarget": "tropic_test.exe (tests\\Debug\\tropic_test.exe)",
+      "name": "tropic_test.exe (tests\\Debug\\tropic_test.exe)"
+    }
+  ]
+}
