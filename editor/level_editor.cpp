@@ -33,6 +33,11 @@ namespace
     const float kEditorRotateStep = 15.0f;
     const float kEditorScaleStep = 0.25f;
     const float kPreviewDefaultGravity = 9.81f;
+    const float kEditorCameraPanSpeed = 18.0f;
+    const float kEditorCameraFastPanMultiplier = 2.0f;
+    const float kEditorCameraButtonStep = 2.0f;
+    const float kEditorMouseOrbitSpeed = 0.35f;
+    const float kEditorMousePanSpeed = 0.02f;
 
     unsigned char g_keys[GLFW_KEY_LAST + 1] = { 0 };
     unsigned char g_prev_keys[GLFW_KEY_LAST + 1] = { 0 };
@@ -159,6 +164,15 @@ namespace
         float orbit_yaw_degrees;
         float orbit_pitch_degrees;
         float orbit_distance;
+        vec3 camera_focus_point;
+        bool camera_focus_initialized;
+        bool camera_focus_tracks_selection;
+        bool mouse_left_down;
+        bool mouse_middle_down;
+        bool mouse_right_down;
+        double mouse_last_x;
+        double mouse_last_y;
+        bool mouse_has_last_position;
         bool ui_dirty;
         bool exit_requested;
     };
@@ -179,6 +193,40 @@ namespace
         destination[0] = source[0];
         destination[1] = source[1];
         destination[2] = source[2];
+    }
+
+    float vec3_length_squared(const vec3 value)
+    {
+        return value[0] * value[0] + value[1] * value[1] + value[2] * value[2];
+    }
+
+    void normalize_vec3(vec3 value)
+    {
+        float length_squared = vec3_length_squared(value);
+
+        if (length_squared <= 0.000001f)
+        {
+            return;
+        }
+
+        length_squared = std::sqrt(length_squared);
+        value[0] /= length_squared;
+        value[1] /= length_squared;
+        value[2] /= length_squared;
+    }
+
+    void cross_vec3(const vec3 a, const vec3 b, vec3 result)
+    {
+        result[0] = a[1] * b[2] - a[2] * b[1];
+        result[1] = a[2] * b[0] - a[0] * b[2];
+        result[2] = a[0] * b[1] - a[1] * b[0];
+    }
+
+    void mul_add_vec3(vec3 value, const vec3 direction, float scale)
+    {
+        value[0] += direction[0] * scale;
+        value[1] += direction[1] * scale;
+        value[2] += direction[2] * scale;
     }
 
     bool key_down(int key)
@@ -578,6 +626,13 @@ namespace
                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)),
                                GetModuleHandleA(NULL),
                                NULL);
+    }
+
+    RECT make_window_rect_for_client_size(DWORD style, DWORD ex_style, int client_width, int client_height)
+    {
+        RECT rect = { 0, 0, client_width, client_height };
+        AdjustWindowRectEx(&rect, style, FALSE, ex_style);
+        return rect;
     }
 
     void set_window_text(HWND control, const std::string& text)
@@ -1043,17 +1098,34 @@ namespace
         compute_scene_center(app, focus);
     }
 
+    void ensure_camera_focus_initialized(EditorApp& app)
+    {
+        if (app.camera_focus_initialized)
+        {
+            return;
+        }
+
+        compute_camera_focus(app, app.camera_focus_point);
+        app.camera_focus_initialized = true;
+        app.camera_focus_tracks_selection = true;
+    }
+
     void update_edit_camera(EditorApp& app, float delta_time)
     {
         vec3 focus;
         vec3 position;
         vec3 up;
+        vec3 right;
+        vec3 forward;
+        vec3 pan_delta;
         float yaw_speed = 90.0f;
         float pitch_speed = 75.0f;
         float zoom_speed = 18.0f;
+        float pan_speed = kEditorCameraPanSpeed;
         float yaw_radians;
         float pitch_radians;
         float cos_pitch;
+        bool did_pan = false;
 
         if (key_down(GLFW_KEY_LEFT)) app.orbit_yaw_degrees -= yaw_speed * delta_time;
         if (key_down(GLFW_KEY_RIGHT)) app.orbit_yaw_degrees += yaw_speed * delta_time;
@@ -1062,13 +1134,69 @@ namespace
         if (key_down(GLFW_KEY_PAGE_UP)) app.orbit_distance -= zoom_speed * delta_time;
         if (key_down(GLFW_KEY_PAGE_DOWN)) app.orbit_distance += zoom_speed * delta_time;
 
+        ensure_camera_focus_initialized(app);
+
+        if (shift_down())
+        {
+            pan_speed *= kEditorCameraFastPanMultiplier;
+        }
+
         app.orbit_pitch_degrees = std::max(-80.0f, std::min(80.0f, app.orbit_pitch_degrees));
         app.orbit_distance = std::max(4.0f, std::min(100.0f, app.orbit_distance));
 
-        compute_camera_focus(app, focus);
+        if (app.camera_focus_tracks_selection)
+        {
+            compute_camera_focus(app, app.camera_focus_point);
+        }
+
         yaw_radians = app.orbit_yaw_degrees * 3.14159265f / 180.0f;
         pitch_radians = app.orbit_pitch_degrees * 3.14159265f / 180.0f;
         cos_pitch = std::cos(pitch_radians);
+
+        set_vec3(right, std::sin(yaw_radians), 0.0f, -std::cos(yaw_radians));
+        set_vec3(forward, -std::cos(yaw_radians), 0.0f, -std::sin(yaw_radians));
+        normalize_vec3(right);
+        normalize_vec3(forward);
+        set_vec3(pan_delta, 0.0f, 0.0f, 0.0f);
+
+        if (key_down(GLFW_KEY_A))
+        {
+            mul_add_vec3(pan_delta, right, -pan_speed * delta_time);
+            did_pan = true;
+        }
+        if (key_down(GLFW_KEY_D))
+        {
+            mul_add_vec3(pan_delta, right, pan_speed * delta_time);
+            did_pan = true;
+        }
+        if (key_down(GLFW_KEY_W))
+        {
+            mul_add_vec3(pan_delta, forward, pan_speed * delta_time);
+            did_pan = true;
+        }
+        if (key_down(GLFW_KEY_S))
+        {
+            mul_add_vec3(pan_delta, forward, -pan_speed * delta_time);
+            did_pan = true;
+        }
+        if (key_down(GLFW_KEY_E))
+        {
+            pan_delta[1] += pan_speed * delta_time;
+            did_pan = true;
+        }
+        if (key_down(GLFW_KEY_Q))
+        {
+            pan_delta[1] -= pan_speed * delta_time;
+            did_pan = true;
+        }
+
+        if (did_pan)
+        {
+            app.camera_focus_tracks_selection = false;
+            mul_add_vec3(app.camera_focus_point, pan_delta, 1.0f);
+        }
+
+        copy_vec3(app.camera_focus_point, focus);
 
         position[0] = focus[0] + std::cos(yaw_radians) * cos_pitch * app.orbit_distance;
         position[1] = focus[1] + std::sin(pitch_radians) * app.orbit_distance;
@@ -1865,6 +1993,8 @@ namespace
             << "  X/Y/Z           : active axis\n"
             << "  [ and ]         : nudge the selected object's current tool value on the active axis\n"
             << "  Arrow keys      : orbit camera\n"
+            << "  W/A/S/D         : pan camera forward/left/back/right\n"
+            << "  Q/E             : pan camera down/up (hold Shift for faster pan)\n"
             << "  PageUp/PageDown : zoom camera\n"
             << "  F2              : save level JSON\n"
             << "  F5              : toggle play preview\n"
@@ -2538,6 +2668,9 @@ namespace
         WNDCLASSA window_class = {};
         HINSTANCE instance = GetModuleHandleA(NULL);
         HWND window;
+        const DWORD window_style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
+        const DWORD window_ex_style = 0;
+        const RECT window_rect = make_window_rect_for_client_size(window_style, window_ex_style, 640, 700);
 
         if (g_editor_panel.window)
         {
@@ -2552,14 +2685,14 @@ namespace
         window_class.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
         RegisterClassA(&window_class);
 
-        window = CreateWindowExA(0,
+        window = CreateWindowExA(window_ex_style,
                                  window_class.lpszClassName,
                                  "Tropic Level Editor Tools",
-                                 WS_OVERLAPPEDWINDOW | WS_VISIBLE,
+                                 window_style,
                                  40,
                                  40,
-                                 560,
-                                 860,
+                                 window_rect.right - window_rect.left,
+                                 window_rect.bottom - window_rect.top,
                                  NULL,
                                  NULL,
                                  instance,
@@ -2662,7 +2795,7 @@ namespace
         g_editor_panel.event_duration_edit = create_edit(window, IDC_EVENT_DURATION, 346, 532, 70, 24);
 
         g_editor_panel.apply_button = create_button(window, "Apply Changes", IDC_APPLY_CHANGES, 286, 572, 260, 30);
-        create_label(window, "Tip: edit numbers directly or use X/Y/Z move buttons. [ and ] still nudge the active tool axis.", 12, 540, 534, 38);
+        create_label(window, "Tip: edit numbers directly or use X/Y/Z move buttons. [ and ] still nudge the active tool axis.", 12, 614, 612, 32);
 
         for (size_t i = 0; i < sizeof(kEditorActionLabels) / sizeof(kEditorActionLabels[0]); ++i)
         {
