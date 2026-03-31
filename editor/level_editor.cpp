@@ -38,6 +38,8 @@ namespace
     const float kEditorCameraButtonStep = 2.0f;
     const float kEditorMouseOrbitSpeed = 0.35f;
     const float kEditorMousePanSpeed = 0.02f;
+    const float kEditorGizmoAxisPixelHitRadius = 14.0f;
+    const float kEditorGizmoRotateDegreesPerPixel = 0.5f;
 
     unsigned char g_keys[GLFW_KEY_LAST + 1] = { 0 };
     unsigned char g_prev_keys[GLFW_KEY_LAST + 1] = { 0 };
@@ -100,12 +102,18 @@ namespace
         MaterialID event_material;
         MaterialID selected_material;
         MaterialID player_material;
+        MaterialID gizmo_x_material;
+        MaterialID gizmo_y_material;
+        MaterialID gizmo_z_material;
         EditorMaterialUniforms platform_uniforms;
         EditorMaterialUniforms spike_uniforms;
         EditorMaterialUniforms jumppad_uniforms;
         EditorMaterialUniforms event_uniforms;
         EditorMaterialUniforms selected_uniforms;
         EditorMaterialUniforms player_uniforms;
+        EditorMaterialUniforms gizmo_x_uniforms;
+        EditorMaterialUniforms gizmo_y_uniforms;
+        EditorMaterialUniforms gizmo_z_uniforms;
     };
 
     struct PreviewEventTriggerState
@@ -173,6 +181,13 @@ namespace
         double mouse_last_x;
         double mouse_last_y;
         bool mouse_has_last_position;
+        double gizmo_drag_last_x;
+        double gizmo_drag_last_y;
+        bool mouse_left_was_down;
+        bool gizmo_drag_active;
+        EditorAxis gizmo_drag_axis;
+        ObjectID gizmo_axis_ids[3];
+        ObjectID gizmo_tip_ids[3];
         bool ui_dirty;
         bool exit_requested;
     };
@@ -227,6 +242,203 @@ namespace
         value[0] += direction[0] * scale;
         value[1] += direction[1] * scale;
         value[2] += direction[2] * scale;
+    }
+
+    float vec2_length(double x, double y)
+    {
+        return static_cast<float>(std::sqrt(x * x + y * y));
+    }
+
+    float distance_point_to_segment(double point_x,
+                                    double point_y,
+                                    double start_x,
+                                    double start_y,
+                                    double end_x,
+                                    double end_y)
+    {
+        const double segment_x = end_x - start_x;
+        const double segment_y = end_y - start_y;
+        const double segment_length_squared = segment_x * segment_x + segment_y * segment_y;
+
+        if (segment_length_squared <= 0.000001)
+        {
+            return vec2_length(point_x - start_x, point_y - start_y);
+        }
+
+        double t = ((point_x - start_x) * segment_x + (point_y - start_y) * segment_y) / segment_length_squared;
+        t = std::max(0.0, std::min(1.0, t));
+
+        return vec2_length(point_x - (start_x + segment_x * t), point_y - (start_y + segment_y * t));
+    }
+
+    void rotate_vec3_euler_xyz(const vec3 rotation_degrees, vec3 value)
+    {
+        const float radians_x = rotation_degrees[0] * 3.14159265f / 180.0f;
+        const float radians_y = rotation_degrees[1] * 3.14159265f / 180.0f;
+        const float radians_z = rotation_degrees[2] * 3.14159265f / 180.0f;
+        const float cos_x = std::cos(radians_x);
+        const float sin_x = std::sin(radians_x);
+        const float cos_y = std::cos(radians_y);
+        const float sin_y = std::sin(radians_y);
+        const float cos_z = std::cos(radians_z);
+        const float sin_z = std::sin(radians_z);
+        float rotated_x;
+        float rotated_y;
+        float rotated_z;
+
+        rotated_x = value[0];
+        rotated_y = value[1] * cos_x - value[2] * sin_x;
+        rotated_z = value[1] * sin_x + value[2] * cos_x;
+        value[0] = rotated_x;
+        value[1] = rotated_y;
+        value[2] = rotated_z;
+
+        rotated_x = value[0] * cos_y + value[2] * sin_y;
+        rotated_y = value[1];
+        rotated_z = -value[0] * sin_y + value[2] * cos_y;
+        value[0] = rotated_x;
+        value[1] = rotated_y;
+        value[2] = rotated_z;
+
+        rotated_x = value[0] * cos_z - value[1] * sin_z;
+        rotated_y = value[0] * sin_z + value[1] * cos_z;
+        rotated_z = value[2];
+        value[0] = rotated_x;
+        value[1] = rotated_y;
+        value[2] = rotated_z;
+    }
+
+    void compute_object_axes(const EditorObject& object, vec3 axes[3])
+    {
+        set_vec3(axes[0], 1.0f, 0.0f, 0.0f);
+        set_vec3(axes[1], 0.0f, 1.0f, 0.0f);
+        set_vec3(axes[2], 0.0f, 0.0f, 1.0f);
+
+        for (int i = 0; i < 3; ++i)
+        {
+            rotate_vec3_euler_xyz(object.rotation, axes[i]);
+            normalize_vec3(axes[i]);
+        }
+    }
+
+    bool get_camera_basis(const EditorApp& app,
+                          vec3 out_right,
+                          vec3 out_up,
+                          vec3 out_forward,
+                          float& out_vertical_world_units_per_pixel,
+                          float* out_depth,
+                          const float* world_point)
+    {
+        TropicCamera* camera = Tropic_getActiveCamera(app.engine);
+        TropicWindowID* window = Tropic_getWindow(app.engine);
+        vec3 forward;
+        vec3 right;
+        vec3 up;
+        int width = 1;
+        int height = 1;
+        float depth = 1.0f;
+        vec3 relative;
+        const float* sample_point = world_point;
+
+        if (!camera || !window)
+        {
+            return false;
+        }
+
+        glfwGetFramebufferSize(window, &width, &height);
+        if (width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        forward[0] = camera->target[0] - camera->position[0];
+        forward[1] = camera->target[1] - camera->position[1];
+        forward[2] = camera->target[2] - camera->position[2];
+        normalize_vec3(forward);
+        cross_vec3(forward, camera->up, right);
+        normalize_vec3(right);
+        cross_vec3(right, forward, up);
+        normalize_vec3(up);
+
+        if (!sample_point)
+        {
+            sample_point = camera->target;
+        }
+
+        relative[0] = sample_point[0] - camera->position[0];
+        relative[1] = sample_point[1] - camera->position[1];
+        relative[2] = sample_point[2] - camera->position[2];
+        depth = glm_vec3_dot(relative, forward);
+        if (depth < 0.1f)
+        {
+            depth = 0.1f;
+        }
+
+        out_vertical_world_units_per_pixel = (2.0f * depth * std::tan(camera->fov * 3.14159265f / 360.0f)) / static_cast<float>(height);
+        if (out_depth)
+        {
+            *out_depth = depth;
+        }
+        copy_vec3(right, out_right);
+        copy_vec3(up, out_up);
+        copy_vec3(forward, out_forward);
+        return true;
+    }
+
+    bool project_world_to_screen(const EditorApp& app, const vec3 world_position, double& out_x, double& out_y)
+    {
+        TropicCamera* camera = Tropic_getActiveCamera(app.engine);
+        TropicWindowID* window = Tropic_getWindow(app.engine);
+        vec3 right;
+        vec3 up;
+        vec3 forward;
+        float vertical_world_units_per_pixel = 0.0f;
+        vec3 relative;
+        float view_x;
+        float view_y;
+        float view_z;
+        int width = 1;
+        int height = 1;
+        float half_height;
+        float half_width;
+
+        if (!camera || !window)
+        {
+            return false;
+        }
+
+        if (!get_camera_basis(app, right, up, forward, vertical_world_units_per_pixel, NULL, world_position))
+        {
+            return false;
+        }
+
+        glfwGetFramebufferSize(window, &width, &height);
+        if (width <= 0 || height <= 0)
+        {
+            return false;
+        }
+
+        relative[0] = world_position[0] - camera->position[0];
+        relative[1] = world_position[1] - camera->position[1];
+        relative[2] = world_position[2] - camera->position[2];
+        view_x = glm_vec3_dot(relative, right);
+        view_y = glm_vec3_dot(relative, up);
+        view_z = glm_vec3_dot(relative, forward);
+        if (view_z <= 0.05f)
+        {
+            return false;
+        }
+
+        half_height = view_z * std::tan(camera->fov * 3.14159265f / 360.0f);
+        half_width = half_height * (static_cast<float>(width) / static_cast<float>(height));
+        if (half_width <= 0.000001f || half_height <= 0.000001f)
+        {
+            return false;
+        }
+
+        out_x = (static_cast<double>(view_x / half_width) * 0.5 + 0.5) * static_cast<double>(width);
+        out_y = (0.5 - static_cast<double>(view_y / half_height) * 0.5) * static_cast<double>(height);
+        return true;
     }
 
     bool key_down(int key)
@@ -998,6 +1210,9 @@ namespace
         init_uniform(render.event_uniforms, 0.75f, 0.35f, 1.00f, 1.0f, 1.0f, 0.65f);
         init_uniform(render.selected_uniforms, 1.00f, 0.92f, 0.25f, 1.4f, 1.7f, 1.0f);
         init_uniform(render.player_uniforms, 0.10f, 0.55f, 1.00f, 1.0f, 1.4f, 1.0f);
+        init_uniform(render.gizmo_x_uniforms, 1.00f, 0.30f, 0.30f, 1.0f, 1.35f, 1.0f);
+        init_uniform(render.gizmo_y_uniforms, 0.30f, 1.00f, 0.35f, 1.0f, 1.35f, 1.0f);
+        init_uniform(render.gizmo_z_uniforms, 0.25f, 0.60f, 1.00f, 1.0f, 1.35f, 1.0f);
 
         render.platform_material = Tropic_createMaterial(engine_id,
                                                          render.cube_mesh,
@@ -1029,10 +1244,38 @@ namespace
                                                        render.player_shader,
                                                        editor_render_callback,
                                                        &render.player_uniforms);
+        render.gizmo_x_material = Tropic_createMaterial(engine_id,
+                                                        render.cube_mesh,
+                                                        render.volume_shader,
+                                                        editor_render_callback,
+                                                        &render.gizmo_x_uniforms);
+        render.gizmo_y_material = Tropic_createMaterial(engine_id,
+                                                        render.cube_mesh,
+                                                        render.volume_shader,
+                                                        editor_render_callback,
+                                                        &render.gizmo_y_uniforms);
+        render.gizmo_z_material = Tropic_createMaterial(engine_id,
+                                                        render.cube_mesh,
+                                                        render.volume_shader,
+                                                        editor_render_callback,
+                                                        &render.gizmo_z_uniforms);
 
         return render.platform_material != 0 && render.spike_material != 0 &&
                render.jumppad_material != 0 && render.event_material != 0 &&
-               render.selected_material != 0 && render.player_material != 0;
+               render.selected_material != 0 && render.player_material != 0 &&
+               render.gizmo_x_material != 0 && render.gizmo_y_material != 0 &&
+               render.gizmo_z_material != 0;
+    }
+
+    MaterialID material_for_gizmo_axis(const EditorApp& app, int axis)
+    {
+        switch (axis)
+        {
+        case 0: return app.render.gizmo_x_material;
+        case 1: return app.render.gizmo_y_material;
+        case 2: return app.render.gizmo_z_material;
+        default: return app.render.selected_material;
+        }
     }
 
     MaterialID material_for_object(const EditorApp& app, ObjectType type, bool selected)
@@ -1498,6 +1741,336 @@ namespace
         return Tropic_setObjectMaterial(app.engine, out_id, material_for_object(app, editor_object.type, false));
     }
 
+    bool create_gizmo_part(EditorApp& app, MaterialID material_id, ObjectID& out_id)
+    {
+        Object prototype;
+
+        std::memset(&prototype, 0, sizeof(prototype));
+        prototype.type = TYPE_GENERIC;
+        set_vec3(prototype.pos, 0.0f, -10000.0f, 0.0f);
+        set_vec3(prototype.scale, 0.01f, 0.01f, 0.01f);
+        set_vec3(prototype.rot, 0.0f, 0.0f, 0.0f);
+        prototype.collider.enabled = false;
+        prototype.body.enabled = false;
+
+        out_id = Tropic_newObject(app.engine, &prototype);
+        if (out_id == 0)
+        {
+            return false;
+        }
+
+        return Tropic_setObjectMaterial(app.engine, out_id, material_id);
+    }
+
+    void hide_editor_gizmo(EditorApp& app)
+    {
+        vec3 hidden_position;
+        vec3 hidden_scale;
+        vec3 zero_rotation;
+
+        set_vec3(hidden_position, 0.0f, -10000.0f, 0.0f);
+        set_vec3(hidden_scale, 0.01f, 0.01f, 0.01f);
+        set_vec3(zero_rotation, 0.0f, 0.0f, 0.0f);
+
+        for (int i = 0; i < 3; ++i)
+        {
+            if (app.gizmo_axis_ids[i] != 0)
+            {
+                (void)Tropic_setObjectPosition(app.engine, app.gizmo_axis_ids[i], hidden_position);
+                (void)Tropic_setObjectScale(app.engine, app.gizmo_axis_ids[i], hidden_scale);
+                (void)Tropic_setObjectRotation(app.engine, app.gizmo_axis_ids[i], zero_rotation);
+            }
+            if (app.gizmo_tip_ids[i] != 0)
+            {
+                (void)Tropic_setObjectPosition(app.engine, app.gizmo_tip_ids[i], hidden_position);
+                (void)Tropic_setObjectScale(app.engine, app.gizmo_tip_ids[i], hidden_scale);
+                (void)Tropic_setObjectRotation(app.engine, app.gizmo_tip_ids[i], zero_rotation);
+            }
+        }
+    }
+
+    bool create_editor_gizmo(EditorApp& app)
+    {
+        for (int i = 0; i < 3; ++i)
+        {
+            if (!create_gizmo_part(app, material_for_gizmo_axis(app, i), app.gizmo_axis_ids[i]) ||
+                !create_gizmo_part(app, material_for_gizmo_axis(app, i), app.gizmo_tip_ids[i]))
+            {
+                return false;
+            }
+        }
+
+        hide_editor_gizmo(app);
+        return true;
+    }
+
+    float current_gizmo_axis_length(const EditorApp& app)
+    {
+        if (!has_selection(app) || app.engine == 0)
+        {
+            return 2.0f;
+        }
+
+        TropicCamera* camera = Tropic_getActiveCamera(app.engine);
+        vec3 offset;
+        float distance_to_object;
+
+        if (!camera)
+        {
+            return 2.0f;
+        }
+
+        offset[0] = app.objects[app.selected_index].position[0] - camera->position[0];
+        offset[1] = app.objects[app.selected_index].position[1] - camera->position[1];
+        offset[2] = app.objects[app.selected_index].position[2] - camera->position[2];
+        distance_to_object = std::sqrt(vec3_length_squared(offset));
+        return std::max(1.5f, distance_to_object * 0.16f);
+    }
+
+    void update_editor_gizmo(EditorApp& app)
+    {
+        vec3 axes[3];
+        float axis_length;
+        float shaft_thickness;
+        float tip_size;
+
+        if (app.mode != EditorMode::Edit || !has_selection(app))
+        {
+            hide_editor_gizmo(app);
+            return;
+        }
+
+        compute_object_axes(app.objects[app.selected_index], axes);
+        axis_length = current_gizmo_axis_length(app);
+        shaft_thickness = std::max(0.08f, axis_length * 0.08f);
+        tip_size = shaft_thickness * 2.2f;
+
+        for (int i = 0; i < 3; ++i)
+        {
+            vec3 shaft_position;
+            vec3 shaft_scale;
+            vec3 tip_position;
+            vec3 tip_scale;
+
+            copy_vec3(app.objects[app.selected_index].position, shaft_position);
+            mul_add_vec3(shaft_position, axes[i], axis_length * 0.5f);
+            set_vec3(shaft_scale, shaft_thickness, shaft_thickness, shaft_thickness);
+            shaft_scale[i] = axis_length;
+
+            copy_vec3(app.objects[app.selected_index].position, tip_position);
+            mul_add_vec3(tip_position, axes[i], axis_length + tip_size * 0.6f);
+            set_vec3(tip_scale, tip_size, tip_size, tip_size);
+
+            if (app.gizmo_axis_ids[i] != 0)
+            {
+                (void)Tropic_setObjectPosition(app.engine, app.gizmo_axis_ids[i], shaft_position);
+                (void)Tropic_setObjectScale(app.engine, app.gizmo_axis_ids[i], shaft_scale);
+                (void)Tropic_setObjectRotation(app.engine, app.gizmo_axis_ids[i], app.objects[app.selected_index].rotation);
+            }
+            if (app.gizmo_tip_ids[i] != 0)
+            {
+                (void)Tropic_setObjectPosition(app.engine, app.gizmo_tip_ids[i], tip_position);
+                (void)Tropic_setObjectScale(app.engine, app.gizmo_tip_ids[i], tip_scale);
+                (void)Tropic_setObjectRotation(app.engine, app.gizmo_tip_ids[i], app.objects[app.selected_index].rotation);
+            }
+        }
+    }
+
+    bool pick_gizmo_axis(const EditorApp& app, double mouse_x, double mouse_y, EditorAxis& out_axis)
+    {
+        vec3 axes[3];
+        float axis_length;
+        float best_distance = kEditorGizmoAxisPixelHitRadius;
+        bool found = false;
+
+        if (app.mode != EditorMode::Edit || !has_selection(app))
+        {
+            return false;
+        }
+
+        compute_object_axes(app.objects[app.selected_index], axes);
+        axis_length = current_gizmo_axis_length(app);
+
+        for (int i = 0; i < 3; ++i)
+        {
+            vec3 start;
+            vec3 end;
+            double start_x;
+            double start_y;
+            double end_x;
+            double end_y;
+            float distance;
+
+            copy_vec3(app.objects[app.selected_index].position, start);
+            copy_vec3(start, end);
+            mul_add_vec3(end, axes[i], axis_length * 1.25f);
+
+            if (!project_world_to_screen(app, start, start_x, start_y) || !project_world_to_screen(app, end, end_x, end_y))
+            {
+                continue;
+            }
+
+            distance = distance_point_to_segment(mouse_x, mouse_y, start_x, start_y, end_x, end_y);
+            if (distance <= best_distance)
+            {
+                best_distance = distance;
+                out_axis = static_cast<EditorAxis>(i);
+                found = true;
+            }
+        }
+
+        return found;
+    }
+
+    void apply_gizmo_drag(EditorApp& app, double mouse_delta_x, double mouse_delta_y)
+    {
+        vec3 axes[3];
+        vec3 center;
+        vec3 axis_end;
+        double center_x;
+        double center_y;
+        double axis_x;
+        double axis_y;
+        double screen_axis_x;
+        double screen_axis_y;
+        float screen_axis_length;
+        float world_units_per_pixel = 0.0f;
+        TropicCamera* camera;
+        TropicWindowID* window;
+        vec3 camera_forward;
+        vec3 camera_to_center;
+        int width = 1;
+        int height = 1;
+        EditorObject& object = app.objects[app.selected_index];
+        const int axis_index = static_cast<int>(app.gizmo_drag_axis);
+
+        if (!has_selection(app) || axis_index < 0 || axis_index > 2)
+        {
+            return;
+        }
+
+        compute_object_axes(object, axes);
+        copy_vec3(object.position, center);
+        copy_vec3(center, axis_end);
+        mul_add_vec3(axis_end, axes[axis_index], current_gizmo_axis_length(app));
+
+        if (!project_world_to_screen(app, center, center_x, center_y) || !project_world_to_screen(app, axis_end, axis_x, axis_y))
+        {
+            return;
+        }
+
+        camera = Tropic_getActiveCamera(app.engine);
+        window = Tropic_getWindow(app.engine);
+        if (!camera || !window)
+        {
+            return;
+        }
+
+        glfwGetFramebufferSize(window, &width, &height);
+        if (height <= 0)
+        {
+            return;
+        }
+
+        camera_forward[0] = camera->target[0] - camera->position[0];
+        camera_forward[1] = camera->target[1] - camera->position[1];
+        camera_forward[2] = camera->target[2] - camera->position[2];
+        normalize_vec3(camera_forward);
+        camera_to_center[0] = center[0] - camera->position[0];
+        camera_to_center[1] = center[1] - camera->position[1];
+        camera_to_center[2] = center[2] - camera->position[2];
+        world_units_per_pixel = (2.0f * std::max(0.1f, glm_vec3_dot(camera_to_center, camera_forward)) * std::tan(camera->fov * 3.14159265f / 360.0f)) / static_cast<float>(height);
+
+        screen_axis_x = axis_x - center_x;
+        screen_axis_y = axis_y - center_y;
+        screen_axis_length = vec2_length(screen_axis_x, screen_axis_y);
+        if (screen_axis_length <= 0.000001f)
+        {
+            return;
+        }
+
+        screen_axis_x /= screen_axis_length;
+        screen_axis_y /= screen_axis_length;
+
+        switch (app.tool)
+        {
+        case EditorTool::Move:
+        {
+            const float delta_along_axis = static_cast<float>(mouse_delta_x * screen_axis_x + mouse_delta_y * screen_axis_y);
+            mul_add_vec3(object.position, axes[axis_index], delta_along_axis * world_units_per_pixel);
+            break;
+        }
+        case EditorTool::Rotate:
+        {
+            const double tangent_x = -screen_axis_y;
+            const double tangent_y = screen_axis_x;
+            const float delta_degrees = static_cast<float>((mouse_delta_x * tangent_x + mouse_delta_y * tangent_y) * kEditorGizmoRotateDegreesPerPixel);
+            object.rotation[axis_index] += delta_degrees;
+            break;
+        }
+        case EditorTool::Scale:
+        {
+            const float delta_along_axis = static_cast<float>(mouse_delta_x * screen_axis_x + mouse_delta_y * screen_axis_y);
+            object.scale[axis_index] = std::max(0.1f, object.scale[axis_index] + delta_along_axis * world_units_per_pixel);
+            break;
+        }
+        }
+
+        sync_selected_object(app);
+        update_editor_gizmo(app);
+    }
+
+    void update_edit_mouse_interaction(EditorApp& app)
+    {
+        TropicWindowID* window = Tropic_getWindow(app.engine);
+        const bool left_was_down = app.mouse_left_was_down;
+        bool left_pressed;
+        bool left_released;
+
+        if (!window)
+        {
+            return;
+        }
+
+        glfwGetCursorPos(window, &app.mouse_last_x, &app.mouse_last_y);
+        app.mouse_left_down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        app.mouse_middle_down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_MIDDLE) == GLFW_PRESS;
+        app.mouse_right_down = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+        app.mouse_has_last_position = true;
+
+        left_pressed = app.mouse_left_down && !left_was_down;
+        left_released = !app.mouse_left_down && left_was_down;
+
+        if (left_released)
+        {
+            app.gizmo_drag_active = false;
+        }
+
+        if (left_pressed)
+        {
+            EditorAxis picked_axis = EditorAxis::X;
+            if (pick_gizmo_axis(app, app.mouse_last_x, app.mouse_last_y, picked_axis))
+            {
+                app.gizmo_drag_active = true;
+                app.gizmo_drag_axis = picked_axis;
+                app.axis = picked_axis;
+                app.gizmo_drag_last_x = app.mouse_last_x;
+                app.gizmo_drag_last_y = app.mouse_last_y;
+            }
+        }
+
+        if (app.gizmo_drag_active && app.mouse_left_down)
+        {
+            apply_gizmo_drag(app,
+                             app.mouse_last_x - app.gizmo_drag_last_x,
+                             app.mouse_last_y - app.gizmo_drag_last_y);
+            app.gizmo_drag_last_x = app.mouse_last_x;
+            app.gizmo_drag_last_y = app.mouse_last_y;
+        }
+
+        app.mouse_left_was_down = app.mouse_left_down;
+    }
+
     bool build_scene(EditorApp& app)
     {
         Scene* scene = NULL;
@@ -1922,6 +2495,11 @@ namespace
             return false;
         }
 
+        if (!preview_mode && !create_editor_gizmo(app))
+        {
+            return false;
+        }
+
         app.camera_id = Tropic_getActiveCameraId(app.engine);
         if (app.camera_id == 0)
         {
@@ -1931,6 +2509,7 @@ namespace
         if (!preview_mode)
         {
             update_edit_camera(app, 0.0f);
+            update_editor_gizmo(app);
         }
         else
         {
@@ -1996,6 +2575,7 @@ namespace
             << "  W/A/S/D         : pan camera forward/left/back/right\n"
             << "  Q/E             : pan camera down/up (hold Shift for faster pan)\n"
             << "  PageUp/PageDown : zoom camera\n"
+            << "  Left mouse      : drag selected gizmo axis to move/rotate/scale the selected object\n"
             << "  F2              : save level JSON\n"
             << "  F5              : toggle play preview\n"
             << "  Preview: A/D move, Space jump, P pause, +/- play speed\n";
@@ -2145,7 +2725,8 @@ namespace
         vec3 focus;
         ObjectID object_id = 0;
 
-        compute_camera_focus(app, focus);
+        ensure_camera_focus_initialized(app);
+        copy_vec3(app.camera_focus_point, focus);
         copy_vec3(focus, object.position);
         object.position[1] += 1.0f;
         object.uid = make_unique_uid(app, type);
@@ -2533,6 +3114,7 @@ namespace
         }
 
         app.metadata.music_path = make_workspace_relative_path(path);
+        set_window_text(g_editor_panel.metadata_music_path, app.metadata.music_path);
         mark_ui_dirty(app);
         (void)apply_panel_to_app(app);
     }
@@ -2929,8 +3511,10 @@ int main(int argc, char* argv[])
 
             if (app.mode == EditorMode::Edit)
             {
+                update_edit_mouse_interaction(app);
                 handle_edit_shortcuts(app);
                 update_edit_camera(app, delta_time);
+                update_editor_gizmo(app);
             }
             else if (!update_preview(app))
             {

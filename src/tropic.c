@@ -14,11 +14,10 @@ static bool _Tropic_init(TropicID engine_id, Tropic* self)
 {
     if (!self) return 0;
 
-    self->window = NULL;
-
     /* Initialize game state strings */
     self->state.game_title = strdup("Tropic Engine Test");
     self->state.level_name = strdup("Test Level 1");
+    self->state.music_path = NULL;
     self->state.play_speed = 1.0f;
 
     self->current_scene = 0;
@@ -46,7 +45,7 @@ static IDManager* _engines_mgr = NULL;
 TropicID Tropic_create(void)
 {
     if (!_engines_mgr) _engines_mgr = idmgr_create(16);
-    Tropic *e = (Tropic*)malloc(sizeof(Tropic));
+    Tropic *e = (Tropic*)calloc(1, sizeof(Tropic));
     if (!e) return 0;
     Handle h = idmgr_alloc(_engines_mgr, e);
     if (h == 0) { free(e); return 0; }
@@ -442,6 +441,10 @@ void Tropic_cleanup(Tropic* self)
     if (self->state.level_name) {
         free(self->state.level_name);
         self->state.level_name = NULL;
+    }
+    if (self->state.music_path) {
+        free(self->state.music_path);
+        self->state.music_path = NULL;
     }
 
     if (self->window) {
