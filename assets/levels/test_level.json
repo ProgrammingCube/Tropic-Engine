@@ -2,7 +2,7 @@
   "metadata": {
     "game_title": "Cyclone",
     "level_name": "Level 1",
-    "music": "Redarkted-Skyebrows.mp3",
+    "music": "assets/levels/Redarkted-Skyebrows.mp3",
     "play_speed": 1.0
   },
   "platforms": [
