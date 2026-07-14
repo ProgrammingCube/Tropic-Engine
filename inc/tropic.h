@@ -3,8 +3,10 @@
 
 #include <vector.h>
 #include <cjson/cJSON.h>
+#include <stddef.h>
 #include <glad/glad.h>
 #include <GLFW/glfw3.h>
+#include "miniaudio.h"
 #include "tropic_gamestate.h"
 #include "camera.h"
 #include "material.h"
@@ -16,6 +18,7 @@
 #include "texture.h"
 #include "shader.h"
 #include "renderer.h"
+#include "audio.h"
 
 extern TropicID _TROPIC_ACTIVE_ENGINE;
 
@@ -42,7 +45,13 @@ typedef struct sTropic
     int fps_overlay_frame_count;
     int fps_overlay_displayed_fps;
     bool fps_overlay_initialized;
+    bool beat_grid_debug_enabled;
 
+    ma_engine audio_engine;
+    ma_sound music_sound;
+    bool audio_initialized;
+    bool music_loaded;
+    float master_volume;
     //Renderer* renderer;
     // Add more fields as needed
 } Tropic;
@@ -67,6 +76,33 @@ void* Tropic_parseLevel(TropicID engine, const char* level_path, int* out_num_ob
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects );
 int Tropic_getNumObjectsInScene( TropicID engine );
 int Tropic_getNumObjectsByType( TropicID engine, ObjectType type );
+bool Tropic_getSceneBeatGridSettings(TropicID engine_id,
+                                     SceneID scene_id,
+                                     TropicBeatGridSettings *out_settings);
+bool Tropic_setSceneBeatGridSettings(TropicID engine_id,
+                                     SceneID scene_id,
+                                     const TropicBeatGridSettings *settings);
+size_t Tropic_getSceneTrackAnchorCount(TropicID engine_id, SceneID scene_id);
+bool Tropic_getSceneTrackAnchor(TropicID engine_id,
+                                SceneID scene_id,
+                                size_t anchor_index,
+                                TropicTrackAnchor *out_anchor);
+bool Tropic_clearSceneTrackAnchors(TropicID engine_id, SceneID scene_id);
+bool Tropic_addSceneTrackAnchor(TropicID engine_id,
+                                SceneID scene_id,
+                                const TropicTrackAnchor *anchor);
+bool Tropic_buildPlacementFrame(TropicID engine_id,
+                                SceneID scene_id,
+                                const TropicTrackPlacement *placement,
+                                TropicTrackFrame *out_frame);
+bool Tropic_resolvePlacementPosition(TropicID engine_id,
+                                     SceneID scene_id,
+                                     const TropicTrackPlacement *placement,
+                                     vec3 out_position);
+float Tropic_getCurrentSceneMusicBeat(TropicID engine_id);
+bool Tropic_getCurrentSceneMusicBeatTime(TropicID engine_id,
+                                         TropicBeatTime *out_time,
+                                         float *out_exact_beat);
 bool Tropic_setSceneGravity( TropicID engine_id, vec3 gravity );
 void Tropic_getSceneGravity( TropicID engine_id, vec3 out_gravity );
 bool Tropic_buildControlBasis( TropicID engine_id,

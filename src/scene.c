@@ -1,4 +1,5 @@
 #include "tropic.h"
+#include "beat_grid_runtime.h"
 
 #include <math.h>
 #include <stdlib.h>
@@ -316,6 +317,10 @@ static void _Scene_free( Scene* scene )
         vector_free( scene->cameras );
         scene->cameras = NULL;
     }
+    if ( scene->track_anchors ) {
+        vector_free( scene->track_anchors );
+        scene->track_anchors = NULL;
+    }
 
     if ( scene->name ) {
         free( scene->name );
@@ -359,6 +364,18 @@ SceneID Tropic_createScene( TropicID engine_id, const char* name )
     glm_vec3_copy((vec3){ 0.1f, 0.1f, 0.1f }, scene->background_color);
     glm_vec3_copy((vec3){ 0.0f, -18.0f, 0.0f }, scene->gravity);
     glm_mat3_identity(scene->world_up);
+    Tropic_setDefaultBeatGridSettings(&scene->beat_grid);
+    Tropic_setDefaultTrackFrame(&scene->base_track_frame);
+    Tropic_setDefaultTrackFrame(&scene->current_track_frame);
+    glm_vec3_copy(scene->beat_grid.origin, scene->base_track_frame.origin);
+    glm_vec3_copy(scene->beat_grid.initial_right, scene->base_track_frame.right);
+    glm_vec3_copy(scene->beat_grid.initial_up, scene->base_track_frame.up);
+    glm_vec3_copy(scene->beat_grid.initial_forward, scene->base_track_frame.forward);
+    glm_vec3_copy(scene->base_track_frame.origin, scene->current_track_frame.origin);
+    glm_vec3_copy(scene->base_track_frame.right, scene->current_track_frame.right);
+    glm_vec3_copy(scene->base_track_frame.up, scene->current_track_frame.up);
+    glm_vec3_copy(scene->base_track_frame.forward, scene->current_track_frame.forward);
+    scene->track_anchors = NULL;
 
     scene->objects_manager = idmgr_create( 256 );
     scene->meshes_manager = idmgr_create( 128 );

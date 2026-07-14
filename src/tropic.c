@@ -1,4 +1,6 @@
 #include "tropic.h"
+#include "beat_grid_runtime.h"
+#include "audio.h"
 
 #include <cglm/cglm.h>
 #include <vector.h>
@@ -30,7 +32,13 @@ static bool _Tropic_init(TropicID engine_id, Tropic* self)
     self->fps_overlay_frame_count = 0;
     self->fps_overlay_displayed_fps = 0;
     self->fps_overlay_initialized = false;
+    self->beat_grid_debug_enabled = false;
+    self->audio_initialized = false;
+    self->music_loaded = false;
+    self->master_volume = 1.0f;
     if ( !self->scene_manager ) return false;
+
+    if (!Tropic_AudioSystemInit(engine_id)) return false;
 
     SceneID default_scene = Tropic_createScene( engine_id, "Default Scene" );
     if ( default_scene == 0 ) return false;
@@ -189,20 +197,226 @@ bool Tropic_setKeyCallback(TropicID engine_id, void* callback)
 	return true;
 }
 
+bool Tropic_getSceneBeatGridSettings(TropicID engine_id,
+                                     SceneID scene_id,
+                                     TropicBeatGridSettings *out_settings)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !out_settings) return false;
+    memcpy(out_settings, &scene->beat_grid, sizeof(*out_settings));
+    return true;
+}
+
+bool Tropic_setSceneBeatGridSettings(TropicID engine_id,
+                                     SceneID scene_id,
+                                     const TropicBeatGridSettings *settings)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !settings) return false;
+
+    memcpy(&scene->beat_grid, settings, sizeof(scene->beat_grid));
+    glm_vec3_copy(scene->beat_grid.origin, scene->base_track_frame.origin);
+    glm_vec3_copy(scene->beat_grid.initial_right, scene->base_track_frame.right);
+    glm_vec3_copy(scene->beat_grid.initial_up, scene->base_track_frame.up);
+    glm_vec3_copy(scene->beat_grid.initial_forward, scene->base_track_frame.forward);
+    glm_vec3_copy(scene->base_track_frame.origin, scene->current_track_frame.origin);
+    glm_vec3_copy(scene->base_track_frame.right, scene->current_track_frame.right);
+    glm_vec3_copy(scene->base_track_frame.up, scene->current_track_frame.up);
+    glm_vec3_copy(scene->base_track_frame.forward, scene->current_track_frame.forward);
+    return true;
+}
+
+size_t Tropic_getSceneTrackAnchorCount(TropicID engine_id, SceneID scene_id)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !scene->track_anchors) return 0;
+    return vector_size(scene->track_anchors);
+}
+
+bool Tropic_getSceneTrackAnchor(TropicID engine_id,
+                                SceneID scene_id,
+                                size_t anchor_index,
+                                TropicTrackAnchor *out_anchor)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !out_anchor || !scene->track_anchors) return false;
+    if (anchor_index >= vector_size(scene->track_anchors)) return false;
+
+    memcpy(out_anchor, &scene->track_anchors[anchor_index], sizeof(*out_anchor));
+    return true;
+}
+
+bool Tropic_clearSceneTrackAnchors(TropicID engine_id, SceneID scene_id)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene) return false;
+    if (scene->track_anchors) {
+        vector_free(scene->track_anchors);
+        scene->track_anchors = NULL;
+    }
+    return true;
+}
+
+bool Tropic_addSceneTrackAnchor(TropicID engine_id,
+                                SceneID scene_id,
+                                const TropicTrackAnchor *anchor)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !anchor) return false;
+    vector_push_back(scene->track_anchors, *anchor);
+    return true;
+}
+
+bool Tropic_buildPlacementFrame(TropicID engine_id,
+                                SceneID scene_id,
+                                const TropicTrackPlacement *placement,
+                                TropicTrackFrame *out_frame)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+
+    if (!scene || !placement || !out_frame) return false;
+
+    return Tropic_buildTrackFrameForPlacement(&scene->beat_grid,
+                                              &scene->base_track_frame,
+                                              scene->track_anchors,
+                                              scene->track_anchors ? vector_size(scene->track_anchors) : 0,
+                                              placement,
+                                              out_frame);
+}
+
+bool Tropic_resolvePlacementPosition(TropicID engine_id,
+                                     SceneID scene_id,
+                                     const TropicTrackPlacement *placement,
+                                     vec3 out_position)
+{
+    Scene *scene = Tropic_getSceneByID(engine_id, scene_id);
+    TropicTrackFrame placement_frame;
+
+    if (!scene || !placement || !out_position) return false;
+    if (!Tropic_buildPlacementFrame(engine_id, scene_id, placement, &placement_frame)) return false;
+
+    return Tropic_resolveTrackPlacementPosition(&scene->beat_grid,
+                                                &placement_frame,
+                                                placement,
+                                                out_position);
+}
+
+float Tropic_getCurrentSceneMusicBeat(TropicID engine_id)
+{
+    SceneID scene_id = Tropic_getCurrentSceneID(engine_id);
+    TropicBeatGridSettings settings;
+
+    if (scene_id == 0)
+    {
+        return 0.0f;
+    }
+
+    if (!Tropic_getSceneBeatGridSettings(engine_id, scene_id, &settings))
+    {
+        return 0.0f;
+    }
+
+    return Tropic_GetMusicBeat(engine_id, settings.bpm, settings.music_offset_seconds);
+}
+
+bool Tropic_getCurrentSceneMusicBeatTime(TropicID engine_id,
+                                         TropicBeatTime *out_time,
+                                         float *out_exact_beat)
+{
+    SceneID scene_id = Tropic_getCurrentSceneID(engine_id);
+    TropicBeatGridSettings settings;
+    float exact_beat;
+    int subdivisions_per_beat;
+    int beat_index;
+    int substep_index;
+    float fractional;
+
+    if (!out_time)
+    {
+        return false;
+    }
+
+    out_time->beat = 0;
+    out_time->substep = 0;
+    if (out_exact_beat)
+    {
+        *out_exact_beat = 0.0f;
+    }
+
+    if (scene_id == 0)
+    {
+        return false;
+    }
+
+    if (!Tropic_getSceneBeatGridSettings(engine_id, scene_id, &settings))
+    {
+        return false;
+    }
+
+    exact_beat = Tropic_GetMusicBeat(engine_id, settings.bpm, settings.music_offset_seconds);
+    if (out_exact_beat)
+    {
+        *out_exact_beat = exact_beat;
+    }
+
+    subdivisions_per_beat = settings.subdivisions_per_beat > 0 ? settings.subdivisions_per_beat : 1;
+    beat_index = (int)exact_beat;
+    fractional = exact_beat - (float)beat_index;
+    if (fractional < 0.0f)
+    {
+        fractional = 0.0f;
+    }
+
+    substep_index = (int)(fractional * (float)subdivisions_per_beat + 0.5f);
+    if (substep_index >= subdivisions_per_beat)
+    {
+        beat_index += 1;
+        substep_index = 0;
+    }
+
+    out_time->beat = beat_index;
+    out_time->substep = substep_index;
+    return true;
+}
+
 void Tropic_loadObjects( TropicID engine, ObjectSpec* objects, int num_objects )
 {
     Tropic *self = Tropic_getById( engine );
+    Scene *scene = Tropic_getCurrentScenePtr(self);
     if (!self || !objects || num_objects <= 0) return;
 
     for (int i = 0; i < num_objects; i++) {
         Object proto = {0};
+        TropicTrackFrame placement_frame;
         proto.type = objects[i].type_code;
         memcpy(proto.uid, objects[i].uid, sizeof(proto.uid));
+        memcpy(&proto.placement, &objects[i].placement, sizeof(TropicTrackPlacement));
         memcpy(proto.pos, objects[i].position, sizeof(vec3));
         memcpy(proto.scale, objects[i].scale, sizeof(vec3));
         memcpy(proto.rot, objects[i].rotation, sizeof(vec3));
         memcpy(&proto.event, &objects[i].event, sizeof(TropicEventSpec));
         proto.event.has_fired = false;
+
+        if (scene &&
+            proto.placement.space == TROPIC_PLACEMENT_SPACE_TRACK &&
+            (!Tropic_buildTrackFrameForPlacement(&scene->beat_grid,
+                                                 &scene->base_track_frame,
+                                                 scene->track_anchors,
+                                                 scene->track_anchors ? vector_size(scene->track_anchors) : 0,
+                                                 &proto.placement,
+                                                 &placement_frame) ||
+             !Tropic_resolveTrackPlacementPosition(&scene->beat_grid,
+                                                  &placement_frame,
+                                                  &proto.placement,
+                                                  proto.pos))) {
+            memcpy(proto.pos, objects[i].position, sizeof(vec3));
+        }
 
         (void)Tropic_newObject( engine, &proto);
     }
@@ -415,7 +629,15 @@ bool Tropic_freeShader(TropicID engine_id, ShaderID id)
 
 void Tropic_cleanup(Tropic* self)
 {
+    TropicID engine_id;
+
     if (!self) return;
+
+    engine_id = Tropic_getByPtr(self);
+
+    if (engine_id != 0 && self->audio_initialized) {
+        (void)Tropic_AudioSystemShutdown(engine_id);
+    }
 
     while ( self->scenes && vector_size( self->scenes ) > 0 ) {
         SceneID scene_id = self->scenes[0];

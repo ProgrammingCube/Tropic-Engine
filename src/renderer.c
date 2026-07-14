@@ -2,7 +2,237 @@
 #include "renderer.h"
 
 #include <cglm/cglm.h>
+#include <stdlib.h>
+#include <string.h>
 #include <vector.h>
+
+typedef struct sRendererDebugVertex
+{
+    float position[3];
+    float color[3];
+} RendererDebugVertex;
+
+static GLuint _renderer_debug_line_program = 0;
+static GLuint _renderer_debug_line_vao = 0;
+static GLuint _renderer_debug_line_vbo = 0;
+
+void Tropic_enableBeatGridDebug(TropicID engine_id, bool enabled)
+{
+    Tropic *self = Tropic_getById(engine_id);
+
+    if (!self) return;
+    self->beat_grid_debug_enabled = enabled;
+}
+
+bool Tropic_isBeatGridDebugEnabled(TropicID engine_id)
+{
+    Tropic *self = Tropic_getById(engine_id);
+
+    if (!self) return false;
+    return self->beat_grid_debug_enabled;
+}
+
+static bool _Renderer_compileDebugShader(GLuint shader, const char *source)
+{
+    GLint success = GL_FALSE;
+
+    glShaderSource(shader, 1, &source, NULL);
+    glCompileShader(shader);
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (success == GL_TRUE) return true;
+
+    glDeleteShader(shader);
+    return false;
+}
+
+static bool _Renderer_ensureDebugLineResources(void)
+{
+    static const char *vertex_source =
+        "#version 330 core\n"
+        "layout (location = 0) in vec3 aPos;\n"
+        "layout (location = 1) in vec3 aColor;\n"
+        "uniform mat4 view;\n"
+        "uniform mat4 projection;\n"
+        "out vec3 vColor;\n"
+        "void main()\n"
+        "{\n"
+        "    vColor = aColor;\n"
+        "    gl_Position = projection * view * vec4(aPos, 1.0);\n"
+        "}\n";
+    static const char *fragment_source =
+        "#version 330 core\n"
+        "in vec3 vColor;\n"
+        "out vec4 FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    FragColor = vec4(vColor, 1.0);\n"
+        "}\n";
+    GLuint vertex_shader;
+    GLuint fragment_shader;
+    GLint success = GL_FALSE;
+
+    if (_renderer_debug_line_program != 0 &&
+        _renderer_debug_line_vao != 0 &&
+        _renderer_debug_line_vbo != 0) {
+        return true;
+    }
+
+    vertex_shader = glCreateShader(GL_VERTEX_SHADER);
+    fragment_shader = glCreateShader(GL_FRAGMENT_SHADER);
+    if (!_Renderer_compileDebugShader(vertex_shader, vertex_source) ||
+        !_Renderer_compileDebugShader(fragment_shader, fragment_source)) {
+        if (vertex_shader != 0) glDeleteShader(vertex_shader);
+        if (fragment_shader != 0) glDeleteShader(fragment_shader);
+        return false;
+    }
+
+    _renderer_debug_line_program = glCreateProgram();
+    glAttachShader(_renderer_debug_line_program, vertex_shader);
+    glAttachShader(_renderer_debug_line_program, fragment_shader);
+    glLinkProgram(_renderer_debug_line_program);
+    glGetProgramiv(_renderer_debug_line_program, GL_LINK_STATUS, &success);
+    glDeleteShader(vertex_shader);
+    glDeleteShader(fragment_shader);
+    if (success != GL_TRUE) {
+        glDeleteProgram(_renderer_debug_line_program);
+        _renderer_debug_line_program = 0;
+        return false;
+    }
+
+    glGenVertexArrays(1, &_renderer_debug_line_vao);
+    glGenBuffers(1, &_renderer_debug_line_vbo);
+    if (_renderer_debug_line_vao == 0 || _renderer_debug_line_vbo == 0) return false;
+
+    glBindVertexArray(_renderer_debug_line_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, _renderer_debug_line_vbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(RendererDebugVertex), (const void*)0);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(RendererDebugVertex), (const void*)(sizeof(float) * 3));
+    glEnableVertexAttribArray(1);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    return true;
+}
+
+static void _Renderer_pushDebugLine(RendererDebugVertex *vertices,
+                                    size_t *vertex_count,
+                                    size_t max_vertices,
+                                    vec3 start,
+                                    vec3 end,
+                                    float r,
+                                    float g,
+                                    float b)
+{
+    if (!vertices || !vertex_count || !start || !end) return;
+    if ((*vertex_count + 2) > max_vertices) return;
+
+    memcpy(vertices[*vertex_count].position, start, sizeof(vec3));
+    vertices[*vertex_count].color[0] = r;
+    vertices[*vertex_count].color[1] = g;
+    vertices[*vertex_count].color[2] = b;
+    (*vertex_count)++;
+    memcpy(vertices[*vertex_count].position, end, sizeof(vec3));
+    vertices[*vertex_count].color[0] = r;
+    vertices[*vertex_count].color[1] = g;
+    vertices[*vertex_count].color[2] = b;
+    (*vertex_count)++;
+}
+
+static void _Renderer_drawBeatGridDebug(TropicID engine_id,
+                                        Scene *scene,
+                                        mat4 view,
+                                        mat4 projection)
+{
+    enum { MAX_DEBUG_VERTICES = 1024 };
+    RendererDebugVertex vertices[MAX_DEBUG_VERTICES];
+    size_t vertex_count = 0;
+    TropicTrackPlacement placement = {0};
+    const int beat_start = 0;
+    const int beat_end = 40;
+    const int lateral_cells = 4;
+    const float axis_length = 3.0f;
+
+    if (!scene || !Tropic_isBeatGridDebugEnabled(engine_id)) return;
+    if (!_Renderer_ensureDebugLineResources()) return;
+
+    placement.space = TROPIC_PLACEMENT_SPACE_TRACK;
+    placement.snap_x = true;
+    placement.snap_y = true;
+
+    for (int beat = beat_start; beat <= beat_end; ++beat) {
+        vec3 start;
+        vec3 end;
+
+        placement.time.beat = beat;
+        placement.time.substep = 0;
+        placement.track_y = 0.0f;
+        placement.track_x = -(float)lateral_cells * scene->beat_grid.snap_unit_x;
+        if (!Tropic_resolvePlacementPosition(engine_id, scene->id, &placement, start)) continue;
+        placement.track_x = (float)lateral_cells * scene->beat_grid.snap_unit_x;
+        if (!Tropic_resolvePlacementPosition(engine_id, scene->id, &placement, end)) continue;
+        _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, start, end, 0.20f, 0.55f, 1.00f);
+    }
+
+    for (int lane = -lateral_cells; lane <= lateral_cells; ++lane) {
+        vec3 start;
+        vec3 end;
+
+        placement.track_x = (float)lane * scene->beat_grid.snap_unit_x;
+        placement.track_y = 0.0f;
+        placement.time.beat = beat_start;
+        placement.time.substep = 0;
+        if (!Tropic_resolvePlacementPosition(engine_id, scene->id, &placement, start)) continue;
+        placement.time.beat = beat_end;
+        if (!Tropic_resolvePlacementPosition(engine_id, scene->id, &placement, end)) continue;
+        _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, start, end, 0.12f, 0.25f, 0.45f);
+    }
+
+    {
+        vec3 origin;
+        vec3 axis_end;
+        TropicTrackFrame frame = scene->base_track_frame;
+
+        glm_vec3_copy(frame.origin, origin);
+        glm_vec3_scale(frame.right, axis_length, axis_end);
+        glm_vec3_add(origin, axis_end, axis_end);
+        _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, origin, axis_end, 1.0f, 0.25f, 0.25f);
+        glm_vec3_scale(frame.up, axis_length, axis_end);
+        glm_vec3_add(origin, axis_end, axis_end);
+        _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, origin, axis_end, 0.25f, 1.0f, 0.25f);
+        glm_vec3_scale(frame.forward, axis_length, axis_end);
+        glm_vec3_add(origin, axis_end, axis_end);
+        _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, origin, axis_end, 0.25f, 0.70f, 1.0f);
+    }
+
+    if (scene->track_anchors) {
+        for (size_t i = 0; i < vector_size(scene->track_anchors); ++i) {
+            TropicTrackAnchor *anchor = &scene->track_anchors[i];
+            vec3 pivot;
+            vec3 marker_end;
+
+            placement.time = anchor->start_time;
+            placement.track_x = anchor->pivot_x;
+            placement.track_y = anchor->pivot_y;
+            if (!Tropic_resolvePlacementPosition(engine_id, scene->id, &placement, pivot)) continue;
+
+            glm_vec3_copy(pivot, marker_end);
+            marker_end[1] += 2.0f;
+            _Renderer_pushDebugLine(vertices, &vertex_count, MAX_DEBUG_VERTICES, pivot, marker_end, 1.0f, 0.85f, 0.15f);
+        }
+    }
+
+    if (vertex_count == 0) return;
+
+    glUseProgram(_renderer_debug_line_program);
+    glUniformMatrix4fv(glGetUniformLocation(_renderer_debug_line_program, "view"), 1, GL_FALSE, (const float*)view);
+    glUniformMatrix4fv(glGetUniformLocation(_renderer_debug_line_program, "projection"), 1, GL_FALSE, (const float*)projection);
+    glBindVertexArray(_renderer_debug_line_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, _renderer_debug_line_vbo);
+    glBufferData(GL_ARRAY_BUFFER, vertex_count * sizeof(RendererDebugVertex), vertices, GL_DYNAMIC_DRAW);
+    glDisable(GL_DEPTH_TEST);
+    glDrawArrays(GL_LINES, 0, (GLsizei)vertex_count);
+    glEnable(GL_DEPTH_TEST);
+}
 
 static void _Renderer_overlayFillRect(int x, int y, int width, int height, float r, float g, float b)
 {
@@ -257,6 +487,8 @@ void Tropic_Render( TropicID engine_id )
         Object *object = Tropic_getObject(engine_id, scene->entities[i]);
         _Renderer_drawObject(engine_id, scene, object, camera, view, projection);
     }
+
+    _Renderer_drawBeatGridDebug(engine_id, scene, view, projection);
 
     _Renderer_drawFpsOverlay(engine_id, self);
 

@@ -84,7 +84,7 @@ typedef struct sEngineTestPlayerTrailState
     bool has_last_sample_position;
 } EngineTestPlayerTrailState;
 
-static char keyboard[256] = { 0 };
+static unsigned char keyboard[GLFW_KEY_LAST + 1] = { 0 };
 static EngineTestMaterialUniforms _cube_material_uniforms = {
     { 0.10f, 0.55f, 1.00f },
     1.0f,
@@ -575,14 +575,18 @@ static bool _player_jump(TropicID engine_id, ObjectID object_id, float jump_spee
 
 static void _key_callback(GLFWwindow* window, int key, int scancode, int action, int mods)
 {
-    (void)scancode; (void)mods;
+    (void)scancode;
+    (void)mods;
 
     if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS)
     {
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     }
 
-    key %= 256; // Ensure key is within bounds of keyboard array
+    if (key < 0 || key > GLFW_KEY_LAST)
+    {
+        return;
+    }
 
     if (action == GLFW_PRESS)
     {

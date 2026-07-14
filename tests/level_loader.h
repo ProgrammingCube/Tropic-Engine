@@ -15,6 +15,8 @@ typedef struct sLevelSpec
     double play_speed;
 
     TropicBeatGridSettings beat_grid;
+    size_t track_anchor_count;
+    TropicTrackAnchor* track_anchors;
 
     size_t platform_count;
     ObjectSpec* platforms;

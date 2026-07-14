@@ -23,6 +23,7 @@
 
 extern "C" {
 #include "tropic.h"
+#include "beat_grid_runtime.h"
 #include "level_loader.h"
 }
 
@@ -70,6 +71,7 @@ namespace
         std::string level_name;
         std::string music_path;
         double play_speed;
+        TropicBeatGridSettings beat_grid;
     };
 
     struct EditorObject
@@ -80,6 +82,7 @@ namespace
         vec3 position;
         vec3 scale;
         vec3 rotation;
+        TropicTrackPlacement placement;
         TropicEventSpec event;
     };
 
@@ -149,6 +152,8 @@ namespace
         PreviewConfig config;
         PreviewLoopState loop_state;
         std::vector<PreviewEventTriggerState> event_trigger_states;
+        float current_exact_beat;
+        TropicBeatTime current_beat_time;
     };
 
     struct EditorApp
@@ -162,9 +167,12 @@ namespace
         EditorRenderResources render;
         PreviewState preview;
         std::vector<EditorObject> objects;
+        std::vector<TropicTrackAnchor> track_anchors;
         std::vector<ObjectID> object_ids;
         size_t selected_index;
+        size_t selected_anchor_index;
         std::string level_path;
+        bool show_beat_grid_debug;
         bool pending_mode_switch;
         EditorMode requested_mode;
         bool initialized;
@@ -543,6 +551,10 @@ namespace
         object.uid.clear();
         set_vec3(object.position, 0.0f, 0.0f, 0.0f);
         set_vec3(object.rotation, 0.0f, 0.0f, 0.0f);
+        std::memset(&object.placement, 0, sizeof(object.placement));
+        object.placement.space = TROPIC_PLACEMENT_SPACE_WORLD;
+        object.placement.snap_x = true;
+        object.placement.snap_y = true;
         object.event = make_default_event_spec();
 
         switch (type)
@@ -565,10 +577,191 @@ namespace
         return object;
     }
 
+    float editor_track_snap_step_x(const EditorApp& app)
+    {
+        return std::max(0.001f, app.metadata.beat_grid.snap_unit_x);
+    }
+
+    float editor_track_snap_step_y(const EditorApp& app)
+    {
+        return std::max(0.001f, app.metadata.beat_grid.snap_unit_y);
+    }
+
+    int editor_subdivisions_per_beat(const EditorApp& app)
+    {
+        return std::max(1, static_cast<int>(app.metadata.beat_grid.subdivisions_per_beat));
+    }
+
+    float snap_to_step(float value, float step)
+    {
+        if (step <= 0.0f)
+        {
+            return value;
+        }
+
+        return std::round(value / step) * step;
+    }
+
+    void normalize_beat_time(TropicBeatTime& time, int subdivisions_per_beat)
+    {
+        if (subdivisions_per_beat <= 0)
+        {
+            subdivisions_per_beat = 1;
+        }
+
+        if (time.substep >= subdivisions_per_beat || time.substep < 0)
+        {
+            int beat_adjust = time.substep / subdivisions_per_beat;
+            int remainder = time.substep % subdivisions_per_beat;
+
+            if (remainder < 0)
+            {
+                remainder += subdivisions_per_beat;
+                --beat_adjust;
+            }
+
+            time.beat += beat_adjust;
+            time.substep = remainder;
+        }
+    }
+
+    void offset_beat_time(TropicBeatTime& time, int substep_delta, int subdivisions_per_beat)
+    {
+        time.substep += substep_delta;
+        normalize_beat_time(time, subdivisions_per_beat);
+    }
+
+    float default_track_y_for_type(ObjectType type)
+    {
+        return type == TYPE_PLATFORM ? 0.0f : 1.0f;
+    }
+
+    void seed_track_placement_from_selection(EditorApp& app, EditorObject& object)
+    {
+        if (has_selection(app) && app.objects[app.selected_index].placement.space == TROPIC_PLACEMENT_SPACE_TRACK)
+        {
+            object.placement = app.objects[app.selected_index].placement;
+            object.placement.time = app.objects[app.selected_index].placement.time;
+            offset_beat_time(object.placement.time, editor_subdivisions_per_beat(app), editor_subdivisions_per_beat(app));
+            object.placement.length_beats = app.objects[app.selected_index].placement.length_beats;
+            object.placement.snap_x = app.objects[app.selected_index].placement.snap_x;
+            object.placement.snap_y = app.objects[app.selected_index].placement.snap_y;
+            object.position[0] = app.objects[app.selected_index].position[0];
+            object.position[1] = app.objects[app.selected_index].position[1];
+            object.position[2] = app.objects[app.selected_index].position[2];
+            return;
+        }
+
+        object.placement.space = TROPIC_PLACEMENT_SPACE_TRACK;
+        object.placement.time.beat = 0;
+        object.placement.time.substep = 0;
+        object.placement.track_x = 0.0f;
+        object.placement.track_y = default_track_y_for_type(object.type);
+        object.placement.snap_x = true;
+        object.placement.snap_y = true;
+        object.placement.length_beats = 0.0f;
+    }
+
+    bool nudge_selected_track_placement(EditorApp& app, int axis, float delta)
+    {
+        EditorObject& object = app.objects[app.selected_index];
+
+        if (object.placement.space != TROPIC_PLACEMENT_SPACE_TRACK)
+        {
+            return false;
+        }
+
+        switch (axis)
+        {
+        case 0:
+            object.placement.track_x += (delta < 0.0f ? -editor_track_snap_step_x(app) : editor_track_snap_step_x(app));
+            if (object.placement.snap_x)
+            {
+                object.placement.track_x = snap_to_step(object.placement.track_x, editor_track_snap_step_x(app));
+            }
+            break;
+        case 1:
+            object.placement.track_y += (delta < 0.0f ? -editor_track_snap_step_y(app) : editor_track_snap_step_y(app));
+            if (object.placement.snap_y)
+            {
+                object.placement.track_y = snap_to_step(object.placement.track_y, editor_track_snap_step_y(app));
+            }
+            break;
+        case 2:
+            offset_beat_time(object.placement.time, delta < 0.0f ? -1 : 1, editor_subdivisions_per_beat(app));
+            break;
+        default:
+            return false;
+        }
+
+        if (app.initialized)
+        {
+            sync_selected_object(app);
+        }
+        else
+        {
+            mark_ui_dirty(app);
+        }
+
+        return true;
+    }
+
+    bool stamp_selected_object_to_current_preview_beat(EditorApp& app)
+    {
+        if (!has_selection(app))
+        {
+            return false;
+        }
+
+        app.objects[app.selected_index].placement.space = TROPIC_PLACEMENT_SPACE_TRACK;
+        app.objects[app.selected_index].placement.time = app.preview.current_beat_time;
+        app.objects[app.selected_index].placement.snap_x = true;
+        app.objects[app.selected_index].placement.snap_y = true;
+
+        if (app.initialized)
+        {
+            sync_selected_object(app);
+        }
+        else
+        {
+            mark_ui_dirty(app);
+        }
+
+        return true;
+    }
+
+    TropicTrackAnchor make_default_track_anchor()
+    {
+        TropicTrackAnchor anchor = {};
+        anchor.start_time.beat = 0;
+        anchor.start_time.substep = 0;
+        anchor.pivot_x = 0.0f;
+        anchor.pivot_y = 0.0f;
+        anchor.pivot_beat = 0.0f;
+        set_vec3(anchor.local_axis, 0.0f, 1.0f, 0.0f);
+        anchor.degrees = -90.0f;
+        return anchor;
+    }
+
     std::string format_number(double value)
     {
         std::ostringstream stream;
         stream << std::fixed << std::setprecision(3) << value;
+        return stream.str();
+    }
+
+    std::string describe_track_anchor_list_item(const TropicTrackAnchor& anchor)
+    {
+        std::ostringstream stream;
+        stream << "beat " << anchor.start_time.beat;
+        if (anchor.start_time.substep != 0)
+        {
+            stream << '.' << anchor.start_time.substep;
+        }
+        stream << " pivot(" << format_number(anchor.pivot_x)
+               << ", " << format_number(anchor.pivot_y)
+               << ", " << format_number(anchor.pivot_beat)
+               << ") rot " << format_number(anchor.degrees);
         return stream.str();
     }
 
@@ -597,6 +790,9 @@ namespace
         IDC_METADATA_LEVEL_NAME,
         IDC_METADATA_MUSIC_PATH,
         IDC_METADATA_PLAY_SPEED,
+        IDC_METADATA_BPM,
+        IDC_METADATA_SUBDIVISIONS,
+        IDC_METADATA_UNITS_PER_BEAT,
         IDC_OBJECT_LIST,
         IDC_ADD_PLATFORM,
         IDC_ADD_SPIKE,
@@ -642,6 +838,25 @@ namespace
         IDC_EVENT_DEGREES,
         IDC_EVENT_SPEED,
         IDC_EVENT_DURATION,
+        IDC_PLACEMENT_SPACE,
+        IDC_PLACEMENT_BEAT,
+        IDC_PLACEMENT_SUBSTEP,
+        IDC_PLACEMENT_TRACK_X,
+        IDC_PLACEMENT_TRACK_Y,
+        IDC_PLACEMENT_LENGTH_BEATS,
+        IDC_ANCHOR_LIST,
+        IDC_ADD_ANCHOR,
+        IDC_DELETE_ANCHOR,
+        IDC_ANCHOR_BEAT,
+        IDC_ANCHOR_SUBSTEP,
+        IDC_ANCHOR_PIVOT_X,
+        IDC_ANCHOR_PIVOT_Y,
+        IDC_ANCHOR_PIVOT_BEAT,
+        IDC_ANCHOR_AXIS_X,
+        IDC_ANCHOR_AXIS_Y,
+        IDC_ANCHOR_AXIS_Z,
+        IDC_ANCHOR_DEGREES,
+        IDC_STAMP_TO_CURRENT_BEAT,
     };
 
     struct EditorPanelState
@@ -652,6 +867,9 @@ namespace
         HWND metadata_level_name;
         HWND metadata_music_path;
         HWND metadata_play_speed;
+        HWND metadata_bpm;
+        HWND metadata_subdivisions;
+        HWND metadata_units_per_beat;
         HWND uid_edit;
         HWND add_platform_button;
         HWND add_spike_button;
@@ -671,6 +889,23 @@ namespace
         HWND position_edits[3];
         HWND scale_edits[3];
         HWND rotation_edits[3];
+        HWND placement_space_combo;
+        HWND placement_beat_edit;
+        HWND placement_substep_edit;
+        HWND placement_track_x_edit;
+        HWND placement_track_y_edit;
+        HWND placement_length_beats_edit;
+        HWND stamp_to_current_beat_button;
+        HWND anchor_list;
+        HWND add_anchor_button;
+        HWND delete_anchor_button;
+        HWND anchor_beat_edit;
+        HWND anchor_substep_edit;
+        HWND anchor_pivot_x_edit;
+        HWND anchor_pivot_y_edit;
+        HWND anchor_pivot_beat_edit;
+        HWND anchor_axis_edits[3];
+        HWND anchor_degrees_edit;
         HWND event_action_combo;
         HWND event_trigger_combo;
         HWND event_once_check;
@@ -716,6 +951,11 @@ namespace
         TROPIC_EVENT_TRIGGER_ENTER,
         TROPIC_EVENT_TRIGGER_STAY,
         TROPIC_EVENT_TRIGGER_EXIT,
+    };
+
+    const char* kEditorPlacementSpaceLabels[] = {
+        "world",
+        "track",
     };
 
     LRESULT CALLBACK editor_edit_proc(HWND hwnd, UINT message, WPARAM w_param, LPARAM l_param)
@@ -853,6 +1093,20 @@ namespace
         {
             SetWindowTextA(control, text.c_str());
         }
+    }
+
+    std::string format_preview_beat_label(const EditorApp& app)
+    {
+        std::ostringstream stream;
+        stream << "Apply Changes";
+        if (app.mode == EditorMode::Preview)
+        {
+            stream << " | Beat "
+                   << app.preview.current_beat_time.beat
+                   << '.'
+                   << app.preview.current_beat_time.substep;
+        }
+        return stream.str();
     }
 
     std::string get_window_text(HWND control)
@@ -1014,7 +1268,7 @@ namespace
 
     bool is_live_apply_control(int control_id, int notification_code)
     {
-        if (control_id == IDC_OBJECT_LIST)
+        if (control_id == IDC_OBJECT_LIST || control_id == IDC_ANCHOR_LIST)
         {
             return false;
         }
@@ -1024,14 +1278,16 @@ namespace
             return notification_code == EN_KILLFOCUS;
         }
 
-        if ((control_id >= IDC_METADATA_GAME_TITLE && control_id <= IDC_METADATA_PLAY_SPEED) ||
+        if ((control_id >= IDC_METADATA_GAME_TITLE && control_id <= IDC_METADATA_UNITS_PER_BEAT) ||
             (control_id >= IDC_POSITION_X && control_id <= IDC_ROTATION_Z) ||
-            (control_id >= IDC_EVENT_TARGET_UID && control_id <= IDC_EVENT_DURATION))
+            (control_id >= IDC_PLACEMENT_BEAT && control_id <= IDC_PLACEMENT_LENGTH_BEATS) ||
+            (control_id >= IDC_EVENT_TARGET_UID && control_id <= IDC_EVENT_DURATION) ||
+            (control_id >= IDC_ANCHOR_BEAT && control_id <= IDC_ANCHOR_DEGREES))
         {
             return notification_code == EN_KILLFOCUS;
         }
 
-        if (control_id == IDC_EVENT_ACTION || control_id == IDC_EVENT_TRIGGER)
+        if (control_id == IDC_EVENT_ACTION || control_id == IDC_EVENT_TRIGGER || control_id == IDC_PLACEMENT_SPACE)
         {
             return notification_code == CBN_SELCHANGE;
         }
@@ -1047,6 +1303,11 @@ namespace
     void nudge_selected_position(EditorApp& app, int axis, float delta)
     {
         if (!has_selection(app) || axis < 0 || axis > 2)
+        {
+            return;
+        }
+
+        if (nudge_selected_track_placement(app, axis, delta))
         {
             return;
         }
@@ -1462,8 +1723,11 @@ namespace
         app.metadata.level_name = "Untitled Level";
         app.metadata.music_path.clear();
         app.metadata.play_speed = 1.0;
+        Tropic_setDefaultBeatGridSettings(&app.metadata.beat_grid);
         app.objects.clear();
+        app.track_anchors.clear();
         app.selected_index = kNoSelection;
+        app.selected_anchor_index = kNoSelection;
 
         if (!level_spec)
         {
@@ -1487,6 +1751,13 @@ namespace
         {
             app.metadata.music_path = level_spec->music_path;
         }
+        app.metadata.beat_grid = level_spec->beat_grid;
+        app.track_anchors.assign(level_spec->track_anchors,
+                                 level_spec->track_anchors + level_spec->track_anchor_count);
+        if (!app.track_anchors.empty())
+        {
+            app.selected_anchor_index = 0;
+        }
 
         for (size_t i = 0; i < level_spec->platform_count; ++i)
         {
@@ -1495,6 +1766,7 @@ namespace
             copy_vec3(level_spec->platforms[i].position, object.position);
             copy_vec3(level_spec->platforms[i].scale, object.scale);
             copy_vec3(level_spec->platforms[i].rotation, object.rotation);
+            object.placement = level_spec->platforms[i].placement;
             object.event = level_spec->platforms[i].event;
             app.objects.push_back(object);
         }
@@ -1506,6 +1778,7 @@ namespace
             copy_vec3(level_spec->spikes[i].position, object.position);
             copy_vec3(level_spec->spikes[i].scale, object.scale);
             copy_vec3(level_spec->spikes[i].rotation, object.rotation);
+            object.placement = level_spec->spikes[i].placement;
             object.event = level_spec->spikes[i].event;
             app.objects.push_back(object);
         }
@@ -1517,6 +1790,7 @@ namespace
             copy_vec3(level_spec->jumppads[i].position, object.position);
             copy_vec3(level_spec->jumppads[i].scale, object.scale);
             copy_vec3(level_spec->jumppads[i].rotation, object.rotation);
+            object.placement = level_spec->jumppads[i].placement;
             object.event = level_spec->jumppads[i].event;
             app.objects.push_back(object);
         }
@@ -1528,6 +1802,7 @@ namespace
             copy_vec3(level_spec->events[i].position, object.position);
             copy_vec3(level_spec->events[i].scale, object.scale);
             copy_vec3(level_spec->events[i].rotation, object.rotation);
+            object.placement = level_spec->events[i].placement;
             object.event = level_spec->events[i].event;
             app.objects.push_back(object);
         }
@@ -1615,6 +1890,88 @@ namespace
         }
     }
 
+    void write_placement_block(std::ofstream& file,
+                               const EditorObject& object,
+                               const std::string& indent)
+    {
+        if (object.placement.space != TROPIC_PLACEMENT_SPACE_TRACK)
+        {
+            return;
+        }
+
+        file << indent << "\"placement\": {\n";
+        file << std::fixed << std::setprecision(3);
+        file << indent << "  \"beat\": " << object.placement.time.beat << ",\n";
+        file << indent << "  \"substep\": " << object.placement.time.substep << ",\n";
+        file << indent << "  \"x\": " << object.placement.track_x << ",\n";
+        file << indent << "  \"y\": " << object.placement.track_y << ",\n";
+        file << indent << "  \"snap_x\": " << (object.placement.snap_x ? "true" : "false") << ",\n";
+        file << indent << "  \"snap_y\": " << (object.placement.snap_y ? "true" : "false");
+        if (object.placement.length_beats != 0.0f)
+        {
+            file << ",\n";
+            file << indent << "  \"length_beats\": " << object.placement.length_beats << "\n";
+        }
+        else
+        {
+            file << "\n";
+        }
+        file << indent << "},\n";
+    }
+
+    void write_metadata_block(std::ofstream& file, const EditorLevelMetadata& metadata)
+    {
+        file << "  \"metadata\": {\n";
+        file << "    \"game_title\": \"" << json_escape(metadata.game_title) << "\",\n";
+        file << "    \"level_name\": \"" << json_escape(metadata.level_name) << "\",\n";
+        file << "    \"music_path\": \"" << json_escape(metadata.music_path) << "\",\n";
+        file << std::fixed << std::setprecision(3);
+        file << "    \"play_speed\": " << metadata.play_speed << ",\n";
+        file << "    \"bpm\": " << metadata.beat_grid.bpm << ",\n";
+        file << "    \"music_offset_seconds\": " << metadata.beat_grid.music_offset_seconds << ",\n";
+        file << "    \"subdivisions_per_beat\": " << metadata.beat_grid.subdivisions_per_beat << ",\n";
+        file << "    \"units_per_beat\": " << metadata.beat_grid.units_per_beat << ",\n";
+        file << "    \"snap_unit_x\": " << metadata.beat_grid.snap_unit_x << ",\n";
+        file << "    \"snap_unit_y\": " << metadata.beat_grid.snap_unit_y << ",\n";
+        write_vec3_block(file, "track_origin", metadata.beat_grid.origin, "    ");
+        file << ",\n";
+        write_vec3_block(file, "track_right", metadata.beat_grid.initial_right, "    ");
+        file << ",\n";
+        write_vec3_block(file, "track_up", metadata.beat_grid.initial_up, "    ");
+        file << ",\n";
+        write_vec3_block(file, "track_forward", metadata.beat_grid.initial_forward, "    ");
+        file << "\n  }";
+    }
+
+    void write_track_anchor_group(std::ofstream& file,
+                                  const std::vector<TropicTrackAnchor>& track_anchors)
+    {
+        file << "  \"track_anchors\": [\n";
+        for (size_t i = 0; i < track_anchors.size(); ++i)
+        {
+            const TropicTrackAnchor& anchor = track_anchors[i];
+            if (i > 0)
+            {
+                file << ",\n";
+            }
+
+            file << "    {\n";
+            file << std::fixed << std::setprecision(3);
+            file << "      \"beat\": " << anchor.start_time.beat << ",\n";
+            file << "      \"substep\": " << anchor.start_time.substep << ",\n";
+            file << "      \"pivot\": {\n";
+            file << "        \"x\": " << anchor.pivot_x << ",\n";
+            file << "        \"y\": " << anchor.pivot_y << ",\n";
+            file << "        \"beat\": " << anchor.pivot_beat << "\n";
+            file << "      },\n";
+            write_vec3_block(file, "local_axis", anchor.local_axis, "      ");
+            file << ",\n";
+            file << "      \"degrees\": " << anchor.degrees << "\n";
+            file << "    }";
+        }
+        file << "\n  ],\n";
+    }
+
     void write_transform_block(std::ofstream& file,
                                const EditorObject& object,
                                bool platform_style,
@@ -1622,6 +1979,7 @@ namespace
     {
         file << indent << "{\n";
         file << indent << "  \"uid\": \"" << json_escape(object.uid) << "\",\n";
+        write_placement_block(file, object, indent + "  ");
         file << indent << "  \"pos\": {\n";
         file << std::fixed << std::setprecision(3);
         file << indent << "    \"x\": " << object.position[0] << ",\n";
@@ -1704,13 +2062,9 @@ namespace
         }
 
         file << "{\n";
-        file << "  \"metadata\": {\n";
-        file << "    \"game_title\": \"" << json_escape(app.metadata.game_title) << "\",\n";
-        file << "    \"level_name\": \"" << json_escape(app.metadata.level_name) << "\",\n";
-        file << "    \"music_path\": \"" << json_escape(app.metadata.music_path) << "\",\n";
-        file << std::fixed << std::setprecision(3);
-        file << "    \"play_speed\": " << app.metadata.play_speed << "\n";
-        file << "  },\n";
+        write_metadata_block(file, app.metadata);
+        file << ",\n";
+        write_track_anchor_group(file, app.track_anchors);
         write_object_group(file, "platforms", app.objects, TYPE_PLATFORM, true, true);
         write_object_group(file, "spikes", app.objects, TYPE_SPIKE, false, true);
         write_object_group(file, "jumppads", app.objects, TYPE_JUMPPAD, false, true);
@@ -1729,8 +2083,21 @@ namespace
         copy_vec3(editor_object.position, prototype.pos);
         copy_vec3(editor_object.scale, prototype.scale);
         copy_vec3(editor_object.rotation, prototype.rot);
+        prototype.placement = editor_object.placement;
         prototype.event = editor_object.event;
         prototype.event.has_fired = false;
+
+        if (prototype.placement.space == TROPIC_PLACEMENT_SPACE_TRACK)
+        {
+            vec3 resolved_position;
+            if (Tropic_resolvePlacementPosition(app.engine,
+                                               Tropic_getCurrentSceneID(app.engine),
+                                               &prototype.placement,
+                                               resolved_position))
+            {
+                copy_vec3(resolved_position, prototype.pos);
+            }
+        }
 
         out_id = Tropic_newObject(app.engine, &prototype);
         if (out_id == 0)
@@ -2078,6 +2445,28 @@ namespace
         vec3 ambient;
         vec3 gravity;
 
+        scene = Tropic_getCurrentScene(app.engine);
+        if (!scene)
+        {
+            return false;
+        }
+
+        if (!Tropic_setSceneBeatGridSettings(app.engine, scene->id, &app.metadata.beat_grid))
+        {
+            return false;
+        }
+        if (!Tropic_clearSceneTrackAnchors(app.engine, scene->id))
+        {
+            return false;
+        }
+        for (size_t i = 0; i < app.track_anchors.size(); ++i)
+        {
+            if (!Tropic_addSceneTrackAnchor(app.engine, scene->id, &app.track_anchors[i]))
+            {
+                return false;
+            }
+        }
+
         app.object_ids.clear();
         app.object_ids.reserve(app.objects.size());
 
@@ -2089,12 +2478,6 @@ namespace
                 return false;
             }
             app.object_ids.push_back(object_id);
-        }
-
-        scene = Tropic_getCurrentScene(app.engine);
-        if (!scene)
-        {
-            return false;
         }
 
         set_vec3(ambient, 0.18f, 0.18f, 0.20f);
@@ -2273,6 +2656,9 @@ namespace
     {
         app.preview.player_id = 0;
         app.preview.event_trigger_states.clear();
+        app.preview.current_exact_beat = 0.0f;
+        app.preview.current_beat_time.beat = 0;
+        app.preview.current_beat_time.substep = 0;
         app.preview.config.move_speed = 5.0f;
         app.preview.config.forward_speed = 16.0f;
         app.preview.config.jump_speed = 9.0f;
@@ -2495,6 +2881,8 @@ namespace
             return false;
         }
 
+        Tropic_enableBeatGridDebug(app.engine, app.show_beat_grid_debug);
+
         if (!preview_mode && !create_editor_gizmo(app))
         {
             return false;
@@ -2528,6 +2916,19 @@ namespace
             if (Tropic_getGameState(app.engine))
             {
                 Tropic_getGameState(app.engine)->play_speed = static_cast<float>(app.metadata.play_speed > 0.0 ? app.metadata.play_speed : 1.0);
+                if (Tropic_getGameState(app.engine)->music_path) free(Tropic_getGameState(app.engine)->music_path);
+                Tropic_getGameState(app.engine)->music_path = _strdup(app.metadata.music_path.c_str());
+            }
+            if (!app.metadata.music_path.empty())
+            {
+                if (!Tropic_LoadMusic(app.engine, app.metadata.music_path.c_str()))
+                {
+                    return false;
+                }
+                if (!Tropic_StopMusic(app.engine) || !Tropic_PlayMusic(app.engine))
+                {
+                    return false;
+                }
             }
             app.preview.loop_state.last_time = Tropic_getTime();
         }
@@ -2576,6 +2977,7 @@ namespace
             << "  Q/E             : pan camera down/up (hold Shift for faster pan)\n"
             << "  PageUp/PageDown : zoom camera\n"
             << "  Left mouse      : drag selected gizmo axis to move/rotate/scale the selected object\n"
+            << "  B               : toggle beat-grid debug rendering\n"
             << "  F2              : save level JSON\n"
             << "  F5              : toggle play preview\n"
             << "  Preview: A/D move, Space jump, P pause, +/- play speed\n";
@@ -2585,10 +2987,20 @@ namespace
     void sync_selected_object(EditorApp& app)
     {
         Object* runtime_object;
+        vec3 resolved_position;
 
         if (!has_selection(app))
         {
             return;
+        }
+
+        if (app.objects[app.selected_index].placement.space == TROPIC_PLACEMENT_SPACE_TRACK &&
+            Tropic_resolvePlacementPosition(app.engine,
+                                            Tropic_getCurrentSceneID(app.engine),
+                                            &app.objects[app.selected_index].placement,
+                                            resolved_position))
+        {
+            copy_vec3(resolved_position, app.objects[app.selected_index].position);
         }
 
         (void)Tropic_setObjectPosition(app.engine,
@@ -2613,6 +3025,43 @@ namespace
         mark_ui_dirty(app);
     }
 
+    void refresh_track_placement_positions(EditorApp& app)
+    {
+        SceneID scene_id;
+
+        if (!app.initialized)
+        {
+            return;
+        }
+
+        scene_id = Tropic_getCurrentSceneID(app.engine);
+        for (size_t i = 0; i < app.objects.size(); ++i)
+        {
+            vec3 resolved_position;
+
+            if (app.objects[i].placement.space != TROPIC_PLACEMENT_SPACE_TRACK)
+            {
+                continue;
+            }
+
+            if (!Tropic_resolvePlacementPosition(app.engine,
+                                                 scene_id,
+                                                 &app.objects[i].placement,
+                                                 resolved_position))
+            {
+                continue;
+            }
+
+            copy_vec3(resolved_position, app.objects[i].position);
+            if (i < app.object_ids.size())
+            {
+                (void)Tropic_setObjectPosition(app.engine, app.object_ids[i], app.objects[i].position);
+            }
+        }
+
+        mark_ui_dirty(app);
+    }
+
     void adjust_selected_object(EditorApp& app, float direction)
     {
         EditorObject* object = NULL;
@@ -2627,6 +3076,10 @@ namespace
         switch (app.tool)
         {
         case EditorTool::Move:
+            if (nudge_selected_track_placement(app, axis, direction))
+            {
+                return;
+            }
             object->position[axis] += direction * kEditorMoveStep;
             break;
         case EditorTool::Rotate:
@@ -2677,8 +3130,23 @@ namespace
 
         object = app.objects[app.selected_index];
         object.uid = make_unique_uid(app, object.type);
-        object.position[0] += 1.0f;
-        object.position[2] += 1.0f;
+        if (object.placement.space == TROPIC_PLACEMENT_SPACE_TRACK)
+        {
+            offset_beat_time(object.placement.time, editor_subdivisions_per_beat(app), editor_subdivisions_per_beat(app));
+            if (object.placement.snap_x)
+            {
+                object.placement.track_x = snap_to_step(object.placement.track_x + editor_track_snap_step_x(app), editor_track_snap_step_x(app));
+            }
+            else
+            {
+                object.placement.track_x += editor_track_snap_step_x(app);
+            }
+        }
+        else
+        {
+            object.position[0] += 1.0f;
+            object.position[2] += 1.0f;
+        }
 
         app.objects.push_back(object);
         if (!create_runtime_object(app, app.objects.back(), object_id))
@@ -2734,6 +3202,7 @@ namespace
         {
             object.position[1] -= 1.0f;
         }
+        seed_track_placement_from_selection(app, object);
 
         app.objects.push_back(object);
         if (!create_runtime_object(app, app.objects.back(), object_id))
@@ -2767,6 +3236,10 @@ namespace
         if (key_pressed(GLFW_KEY_2)) (void)add_object(app, TYPE_SPIKE);
         if (key_pressed(GLFW_KEY_3)) (void)add_object(app, TYPE_JUMPPAD);
         if (key_pressed(GLFW_KEY_4)) (void)add_object(app, TYPE_EVENT);
+        if (key_pressed(GLFW_KEY_B)) {
+            app.show_beat_grid_debug = !app.show_beat_grid_debug;
+            Tropic_enableBeatGridDebug(app.engine, app.show_beat_grid_debug);
+        }
 
         if (key_pressed(GLFW_KEY_F2) && save_level_model(app))
         {
@@ -2798,10 +3271,25 @@ namespace
             if (loop.paused)
             {
                 loop.physics_accumulator = 0.0;
+                if (!app.metadata.music_path.empty())
+                {
+                    (void)Tropic_PauseMusic(app.engine);
+                }
+            }
+            else
+            {
+                if (!app.metadata.music_path.empty())
+                {
+                    (void)Tropic_PlayMusic(app.engine);
+                }
             }
         }
 
         update_play_speed(app, delta_time);
+
+        (void)Tropic_getCurrentSceneMusicBeatTime(app.engine,
+                                                  &app.preview.current_beat_time,
+                                                  &app.preview.current_exact_beat);
 
         if (!loop.paused && jump_requested)
         {
@@ -2845,6 +3333,7 @@ namespace
     void sync_panel_from_app(EditorApp& app)
     {
         int selection = LB_ERR;
+        int anchor_selection = LB_ERR;
         bool event_selected = false;
 
         if (!g_editor_panel.window || !app.ui_dirty)
@@ -2858,12 +3347,50 @@ namespace
         set_window_text(g_editor_panel.metadata_level_name, app.metadata.level_name);
         set_window_text(g_editor_panel.metadata_music_path, app.metadata.music_path);
         set_edit_double(g_editor_panel.metadata_play_speed, app.metadata.play_speed);
+        set_edit_float(g_editor_panel.metadata_bpm, app.metadata.beat_grid.bpm);
+        set_edit_float(g_editor_panel.metadata_subdivisions, static_cast<float>(app.metadata.beat_grid.subdivisions_per_beat));
+        set_edit_float(g_editor_panel.metadata_units_per_beat, app.metadata.beat_grid.units_per_beat);
 
         SendMessageA(g_editor_panel.object_list, LB_RESETCONTENT, 0, 0);
         for (size_t i = 0; i < app.objects.size(); ++i)
         {
             const std::string label = describe_object_list_item(app.objects[i]);
             SendMessageA(g_editor_panel.object_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        SendMessageA(g_editor_panel.anchor_list, LB_RESETCONTENT, 0, 0);
+        for (size_t i = 0; i < app.track_anchors.size(); ++i)
+        {
+            const std::string label = describe_track_anchor_list_item(app.track_anchors[i]);
+            SendMessageA(g_editor_panel.anchor_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+        if (app.selected_anchor_index < app.track_anchors.size())
+        {
+            anchor_selection = static_cast<int>(app.selected_anchor_index);
+            SendMessageA(g_editor_panel.anchor_list, LB_SETCURSEL, static_cast<WPARAM>(anchor_selection), 0);
+            set_edit_float(g_editor_panel.anchor_beat_edit, static_cast<float>(app.track_anchors[app.selected_anchor_index].start_time.beat));
+            set_edit_float(g_editor_panel.anchor_substep_edit, static_cast<float>(app.track_anchors[app.selected_anchor_index].start_time.substep));
+            set_edit_float(g_editor_panel.anchor_pivot_x_edit, app.track_anchors[app.selected_anchor_index].pivot_x);
+            set_edit_float(g_editor_panel.anchor_pivot_y_edit, app.track_anchors[app.selected_anchor_index].pivot_y);
+            set_edit_float(g_editor_panel.anchor_pivot_beat_edit, app.track_anchors[app.selected_anchor_index].pivot_beat);
+            for (int i = 0; i < 3; ++i)
+            {
+                set_edit_float(g_editor_panel.anchor_axis_edits[i], app.track_anchors[app.selected_anchor_index].local_axis[i]);
+            }
+            set_edit_float(g_editor_panel.anchor_degrees_edit, app.track_anchors[app.selected_anchor_index].degrees);
+        }
+        else
+        {
+            SendMessageA(g_editor_panel.anchor_list, LB_SETCURSEL, static_cast<WPARAM>(-1), 0);
+            set_window_text(g_editor_panel.anchor_beat_edit, "");
+            set_window_text(g_editor_panel.anchor_substep_edit, "");
+            set_window_text(g_editor_panel.anchor_pivot_x_edit, "");
+            set_window_text(g_editor_panel.anchor_pivot_y_edit, "");
+            set_window_text(g_editor_panel.anchor_pivot_beat_edit, "");
+            for (int i = 0; i < 3; ++i)
+            {
+                set_window_text(g_editor_panel.anchor_axis_edits[i], "");
+            }
+            set_window_text(g_editor_panel.anchor_degrees_edit, "");
         }
 
         if (app.selected_index < app.objects.size())
@@ -2878,6 +3405,15 @@ namespace
                 set_edit_float(g_editor_panel.scale_edits[i], app.objects[app.selected_index].scale[i]);
                 set_edit_float(g_editor_panel.rotation_edits[i], app.objects[app.selected_index].rotation[i]);
             }
+            SendMessageA(g_editor_panel.placement_space_combo,
+                         CB_SETCURSEL,
+                         app.objects[app.selected_index].placement.space == TROPIC_PLACEMENT_SPACE_TRACK ? 1 : 0,
+                         0);
+            set_edit_float(g_editor_panel.placement_beat_edit, static_cast<float>(app.objects[app.selected_index].placement.time.beat));
+            set_edit_float(g_editor_panel.placement_substep_edit, static_cast<float>(app.objects[app.selected_index].placement.time.substep));
+            set_edit_float(g_editor_panel.placement_track_x_edit, app.objects[app.selected_index].placement.track_x);
+            set_edit_float(g_editor_panel.placement_track_y_edit, app.objects[app.selected_index].placement.track_y);
+            set_edit_float(g_editor_panel.placement_length_beats_edit, app.objects[app.selected_index].placement.length_beats);
 
             event_selected = app.objects[app.selected_index].type == TYPE_EVENT;
             set_event_controls_enabled(event_selected);
@@ -2927,6 +3463,12 @@ namespace
                 set_window_text(g_editor_panel.event_gravity_edits[i], "");
                 set_window_text(g_editor_panel.event_axis_edits[i], "");
             }
+            SendMessageA(g_editor_panel.placement_space_combo, CB_SETCURSEL, 0, 0);
+            set_window_text(g_editor_panel.placement_beat_edit, "");
+            set_window_text(g_editor_panel.placement_substep_edit, "");
+            set_window_text(g_editor_panel.placement_track_x_edit, "");
+            set_window_text(g_editor_panel.placement_track_y_edit, "");
+            set_window_text(g_editor_panel.placement_length_beats_edit, "");
             set_window_text(g_editor_panel.event_target_uid_edit, "");
             set_window_text(g_editor_panel.event_function_edit, "");
             set_window_text(g_editor_panel.event_degrees_edit, "");
@@ -2936,6 +3478,7 @@ namespace
         }
 
         SetWindowTextA(g_editor_panel.preview_button, app.mode == EditorMode::Preview ? "Return to Edit" : "Enter Preview");
+        SetWindowTextA(g_editor_panel.apply_button, format_preview_beat_label(app).c_str());
         g_editor_panel.suppress_events = false;
         app.ui_dirty = false;
     }
@@ -2951,6 +3494,24 @@ namespace
         app.metadata.level_name = get_window_text(g_editor_panel.metadata_level_name);
         app.metadata.music_path = make_workspace_relative_path(get_window_text(g_editor_panel.metadata_music_path));
         app.metadata.play_speed = std::max(0.1, read_double_or_default(g_editor_panel.metadata_play_speed, app.metadata.play_speed));
+        app.metadata.beat_grid.bpm = std::max(1.0f, read_float_or_default(g_editor_panel.metadata_bpm, app.metadata.beat_grid.bpm));
+        app.metadata.beat_grid.subdivisions_per_beat = std::max(1, static_cast<int>(read_float_or_default(g_editor_panel.metadata_subdivisions, static_cast<float>(app.metadata.beat_grid.subdivisions_per_beat))));
+        app.metadata.beat_grid.units_per_beat = std::max(0.1f, read_float_or_default(g_editor_panel.metadata_units_per_beat, app.metadata.beat_grid.units_per_beat));
+
+        if (app.selected_anchor_index < app.track_anchors.size())
+        {
+            TropicTrackAnchor& anchor = app.track_anchors[app.selected_anchor_index];
+            anchor.start_time.beat = static_cast<int32_t>(read_float_or_default(g_editor_panel.anchor_beat_edit, static_cast<float>(anchor.start_time.beat)));
+            anchor.start_time.substep = static_cast<int32_t>(read_float_or_default(g_editor_panel.anchor_substep_edit, static_cast<float>(anchor.start_time.substep)));
+            anchor.pivot_x = read_float_or_default(g_editor_panel.anchor_pivot_x_edit, anchor.pivot_x);
+            anchor.pivot_y = read_float_or_default(g_editor_panel.anchor_pivot_y_edit, anchor.pivot_y);
+            anchor.pivot_beat = read_float_or_default(g_editor_panel.anchor_pivot_beat_edit, anchor.pivot_beat);
+            for (int i = 0; i < 3; ++i)
+            {
+                anchor.local_axis[i] = read_float_or_default(g_editor_panel.anchor_axis_edits[i], anchor.local_axis[i]);
+            }
+            anchor.degrees = read_float_or_default(g_editor_panel.anchor_degrees_edit, anchor.degrees);
+        }
 
         if (has_selection(app))
         {
@@ -2974,6 +3535,14 @@ namespace
                 object.scale[i] = std::max(0.1f, read_float_or_default(g_editor_panel.scale_edits[i], object.scale[i]));
                 object.rotation[i] = read_float_or_default(g_editor_panel.rotation_edits[i], object.rotation[i]);
             }
+            object.placement.space = static_cast<int>(SendMessageA(g_editor_panel.placement_space_combo, CB_GETCURSEL, 0, 0)) == 1
+                ? TROPIC_PLACEMENT_SPACE_TRACK
+                : TROPIC_PLACEMENT_SPACE_WORLD;
+            object.placement.time.beat = static_cast<int32_t>(read_float_or_default(g_editor_panel.placement_beat_edit, static_cast<float>(object.placement.time.beat)));
+            object.placement.time.substep = static_cast<int32_t>(read_float_or_default(g_editor_panel.placement_substep_edit, static_cast<float>(object.placement.time.substep)));
+            object.placement.track_x = read_float_or_default(g_editor_panel.placement_track_x_edit, object.placement.track_x);
+            object.placement.track_y = read_float_or_default(g_editor_panel.placement_track_y_edit, object.placement.track_y);
+            object.placement.length_beats = read_float_or_default(g_editor_panel.placement_length_beats_edit, object.placement.length_beats);
 
             if (object.type == TYPE_EVENT)
             {
@@ -3031,9 +3600,17 @@ namespace
         if (app.initialized && Tropic_getGameState(app.engine))
         {
             TropicGameState* state = Tropic_getGameState(app.engine);
+            SceneID scene_id = Tropic_getCurrentSceneID(app.engine);
             Tropic_getGameState(app.engine)->play_speed = static_cast<float>(app.metadata.play_speed);
             if (state->music_path) free(state->music_path);
             state->music_path = _strdup(app.metadata.music_path.c_str());
+            (void)Tropic_setSceneBeatGridSettings(app.engine, scene_id, &app.metadata.beat_grid);
+            (void)Tropic_clearSceneTrackAnchors(app.engine, scene_id);
+            for (size_t i = 0; i < app.track_anchors.size(); ++i)
+            {
+                (void)Tropic_addSceneTrackAnchor(app.engine, scene_id, &app.track_anchors[i]);
+            }
+            refresh_track_placement_positions(app);
         }
 
         mark_ui_dirty(app);
@@ -3134,6 +3711,17 @@ namespace
 
         switch (control_id)
         {
+        case IDC_ANCHOR_LIST:
+            if (notification_code == LBN_SELCHANGE)
+            {
+                int selection = static_cast<int>(SendMessageA(g_editor_panel.anchor_list, LB_GETCURSEL, 0, 0));
+                if (selection >= 0)
+                {
+                    app.selected_anchor_index = static_cast<size_t>(selection);
+                    mark_ui_dirty(app);
+                }
+            }
+            break;
         case IDC_OBJECT_LIST:
             if (notification_code == LBN_SELCHANGE)
             {
@@ -3144,6 +3732,26 @@ namespace
                     update_selection_materials(app);
                     mark_ui_dirty(app);
                 }
+            }
+            break;
+        case IDC_ADD_ANCHOR:
+            app.track_anchors.push_back(make_default_track_anchor());
+            app.selected_anchor_index = app.track_anchors.size() - 1;
+            (void)apply_panel_to_app(app);
+            break;
+        case IDC_DELETE_ANCHOR:
+            if (app.selected_anchor_index < app.track_anchors.size())
+            {
+                app.track_anchors.erase(app.track_anchors.begin() + static_cast<std::ptrdiff_t>(app.selected_anchor_index));
+                if (app.track_anchors.empty())
+                {
+                    app.selected_anchor_index = kNoSelection;
+                }
+                else if (app.selected_anchor_index >= app.track_anchors.size())
+                {
+                    app.selected_anchor_index = app.track_anchors.size() - 1;
+                }
+                (void)apply_panel_to_app(app);
             }
             break;
         case IDC_ADD_PLATFORM:
@@ -3187,6 +3795,12 @@ namespace
             break;
         case IDC_APPLY_CHANGES:
             (void)apply_panel_to_app(app);
+            break;
+        case IDC_STAMP_TO_CURRENT_BEAT:
+            if (app.mode == EditorMode::Preview)
+            {
+                (void)stamp_selected_object_to_current_preview_beat(app);
+            }
             break;
         case IDC_AUTO_UID:
             if (has_selection(app))
@@ -3252,7 +3866,7 @@ namespace
         HWND window;
         const DWORD window_style = WS_OVERLAPPEDWINDOW | WS_VISIBLE;
         const DWORD window_ex_style = 0;
-        const RECT window_rect = make_window_rect_for_client_size(window_style, window_ex_style, 640, 700);
+        const RECT window_rect = make_window_rect_for_client_size(window_style, window_ex_style, 640, 930);
 
         if (g_editor_panel.window)
         {
@@ -3376,8 +3990,9 @@ namespace
         create_label(window, "Duration", 286, 534, 60, 20);
         g_editor_panel.event_duration_edit = create_edit(window, IDC_EVENT_DURATION, 346, 532, 70, 24);
 
-        g_editor_panel.apply_button = create_button(window, "Apply Changes", IDC_APPLY_CHANGES, 286, 572, 260, 30);
-        create_label(window, "Tip: edit numbers directly or use X/Y/Z move buttons. [ and ] still nudge the active tool axis.", 12, 614, 612, 32);
+        g_editor_panel.apply_button = create_button(window, "Apply Changes", IDC_APPLY_CHANGES, 286, 572, 180, 30);
+        g_editor_panel.stamp_to_current_beat_button = create_button(window, "Stamp Current Beat", IDC_STAMP_TO_CURRENT_BEAT, 472, 572, 112, 30);
+        create_label(window, "Tip: edit numbers directly or use X/Y/Z move buttons. [ and ] still nudge the active tool axis. Preview shows live beat and can stamp selection to it.", 12, 614, 612, 32);
 
         for (size_t i = 0; i < sizeof(kEditorActionLabels) / sizeof(kEditorActionLabels[0]); ++i)
         {
@@ -3386,6 +4001,10 @@ namespace
         for (size_t i = 0; i < sizeof(kEditorTriggerLabels) / sizeof(kEditorTriggerLabels[0]); ++i)
         {
             SendMessageA(g_editor_panel.event_trigger_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kEditorTriggerLabels[i]));
+        }
+        for (size_t i = 0; i < sizeof(kEditorPlacementSpaceLabels) / sizeof(kEditorPlacementSpaceLabels[0]); ++i)
+        {
+            SendMessageA(g_editor_panel.placement_space_combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(kEditorPlacementSpaceLabels[i]));
         }
 
         app.ui_dirty = true;

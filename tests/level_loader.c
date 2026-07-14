@@ -1,5 +1,6 @@
 #include "level_loader.h"
 #include "tropic.h"
+#include "beat_grid_runtime.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -203,6 +204,148 @@ static void parse_vec3_or_default(cJSON *object, vec3 out_vec3, float x, float y
     out_vec3[2] = (float)json_number_or_default(object, "z", z);
 }
 
+static void parse_track_placement(cJSON *json_object, TropicTrackPlacement *out_placement)
+{
+    cJSON *placement;
+    cJSON *space;
+
+    if (!out_placement) return;
+
+    memset(out_placement, 0, sizeof(*out_placement));
+    out_placement->space = TROPIC_PLACEMENT_SPACE_WORLD;
+
+    if (!json_object) return;
+
+    placement = cJSON_GetObjectItemCaseSensitive(json_object, "placement");
+    if (!placement || !cJSON_IsObject(placement)) {
+        return;
+    }
+
+    space = cJSON_GetObjectItemCaseSensitive(placement, "space");
+    if (cJSON_IsString(space) && space->valuestring && strcmp(space->valuestring, "world") == 0) {
+        out_placement->space = TROPIC_PLACEMENT_SPACE_WORLD;
+    } else {
+        out_placement->space = TROPIC_PLACEMENT_SPACE_TRACK;
+    }
+
+    out_placement->time.beat = (int32_t)json_number_or_default(placement, "beat", 0.0);
+    out_placement->time.substep = (int32_t)json_number_or_default(placement, "substep", 0.0);
+    out_placement->track_x = (float)json_number_or_default(placement,
+                                                           "track_x",
+                                                           json_number_or_default(placement, "x", 0.0));
+    out_placement->track_y = (float)json_number_or_default(placement,
+                                                           "track_y",
+                                                           json_number_or_default(placement, "y", 0.0));
+    out_placement->length_beats = (float)json_number_or_default(placement, "length_beats", 0.0);
+
+    {
+        cJSON *snap_x = cJSON_GetObjectItemCaseSensitive(placement, "snap_x");
+        cJSON *snap_y = cJSON_GetObjectItemCaseSensitive(placement, "snap_y");
+
+        out_placement->snap_x = cJSON_IsBool(snap_x) ? cJSON_IsTrue(snap_x) : true;
+        out_placement->snap_y = cJSON_IsBool(snap_y) ? cJSON_IsTrue(snap_y) : true;
+    }
+}
+
+static void parse_beat_grid_metadata(cJSON *metadata, TropicBeatGridSettings *out_settings)
+{
+    cJSON *origin;
+    cJSON *right;
+    cJSON *up;
+    cJSON *forward;
+
+    if (!out_settings) return;
+
+    Tropic_setDefaultBeatGridSettings(out_settings);
+    if (!metadata) return;
+
+    out_settings->bpm = (float)json_number_or_default(metadata, "bpm", out_settings->bpm);
+    out_settings->music_offset_seconds = (float)json_number_or_default(metadata,
+                                                                       "music_offset_seconds",
+                                                                       out_settings->music_offset_seconds);
+    out_settings->subdivisions_per_beat = (int32_t)json_number_or_default(metadata,
+                                                                          "subdivisions_per_beat",
+                                                                          out_settings->subdivisions_per_beat);
+    out_settings->units_per_beat = (float)json_number_or_default(metadata,
+                                                                 "units_per_beat",
+                                                                 out_settings->units_per_beat);
+    out_settings->snap_unit_x = (float)json_number_or_default(metadata,
+                                                              "snap_unit_x",
+                                                              out_settings->snap_unit_x);
+    out_settings->snap_unit_y = (float)json_number_or_default(metadata,
+                                                              "snap_unit_y",
+                                                              out_settings->snap_unit_y);
+
+    origin = cJSON_GetObjectItemCaseSensitive(metadata, "track_origin");
+    if (!origin) origin = cJSON_GetObjectItemCaseSensitive(metadata, "origin");
+    right = cJSON_GetObjectItemCaseSensitive(metadata, "track_right");
+    if (!right) right = cJSON_GetObjectItemCaseSensitive(metadata, "right");
+    up = cJSON_GetObjectItemCaseSensitive(metadata, "track_up");
+    if (!up) up = cJSON_GetObjectItemCaseSensitive(metadata, "up");
+    forward = cJSON_GetObjectItemCaseSensitive(metadata, "track_forward");
+    if (!forward) forward = cJSON_GetObjectItemCaseSensitive(metadata, "forward");
+
+    parse_vec3_or_default(origin, out_settings->origin,
+                          out_settings->origin[0], out_settings->origin[1], out_settings->origin[2]);
+    parse_vec3_or_default(right, out_settings->initial_right,
+                          out_settings->initial_right[0], out_settings->initial_right[1], out_settings->initial_right[2]);
+    parse_vec3_or_default(up, out_settings->initial_up,
+                          out_settings->initial_up[0], out_settings->initial_up[1], out_settings->initial_up[2]);
+    parse_vec3_or_default(forward, out_settings->initial_forward,
+                          out_settings->initial_forward[0], out_settings->initial_forward[1], out_settings->initial_forward[2]);
+
+    if (out_settings->subdivisions_per_beat <= 0) out_settings->subdivisions_per_beat = 1;
+    if (out_settings->units_per_beat == 0.0f) out_settings->units_per_beat = 1.0f;
+}
+
+static bool parse_track_anchors(cJSON *json,
+                                TropicTrackAnchor **out_anchors,
+                                size_t *out_count)
+{
+    cJSON *anchors = cJSON_GetObjectItemCaseSensitive(json, "track_anchors");
+
+    if (!out_anchors || !out_count) return false;
+
+    *out_anchors = NULL;
+    *out_count = 0;
+
+    if (!anchors || !cJSON_IsArray(anchors)) {
+        return true;
+    }
+
+    *out_count = (size_t)cJSON_GetArraySize(anchors);
+    if (*out_count == 0) {
+        return true;
+    }
+
+    *out_anchors = (TropicTrackAnchor*)calloc(*out_count, sizeof(TropicTrackAnchor));
+    if (!*out_anchors) return false;
+
+    for (size_t i = 0; i < *out_count; ++i) {
+        cJSON *anchor = cJSON_GetArrayItem(anchors, (int)i);
+        cJSON *axis = anchor ? cJSON_GetObjectItemCaseSensitive(anchor, "local_axis") : NULL;
+        cJSON *pivot = anchor ? cJSON_GetObjectItemCaseSensitive(anchor, "pivot") : NULL;
+
+        if (!cJSON_IsObject(anchor)) return false;
+
+        (*out_anchors)[i].start_time.beat = (int32_t)json_number_or_default(anchor, "beat", 0.0);
+        (*out_anchors)[i].start_time.substep = (int32_t)json_number_or_default(anchor, "substep", 0.0);
+        (*out_anchors)[i].pivot_x = (float)json_number_or_default(anchor,
+                                                                  "pivot_x",
+                                                                  json_number_or_default(pivot, "x", 0.0));
+        (*out_anchors)[i].pivot_y = (float)json_number_or_default(anchor,
+                                                                  "pivot_y",
+                                                                  json_number_or_default(pivot, "y", 0.0));
+        (*out_anchors)[i].pivot_beat = (float)json_number_or_default(anchor,
+                                                                     "pivot_beat",
+                                                                     json_number_or_default(pivot, "beat", 0.0));
+        parse_vec3_or_default(axis, (*out_anchors)[i].local_axis, 0.0f, 0.0f, 1.0f);
+        (*out_anchors)[i].degrees = (float)json_number_or_default(anchor, "degrees", 0.0);
+    }
+
+    return true;
+}
+
 static bool register_uid(const char *uid, char ***uid_registry, size_t *uid_count)
 {
     char **expanded_registry;
@@ -253,6 +396,9 @@ static bool parse_common_object(cJSON *json_object,
     memset(out_spec, 0, sizeof(*out_spec));
     strncpy(out_spec->type, type_name, sizeof(out_spec->type));
     out_spec->type[sizeof(out_spec->type) - 1] = '\0';
+    out_spec->placement.space = TROPIC_PLACEMENT_SPACE_WORLD;
+    out_spec->placement.snap_x = true;
+    out_spec->placement.snap_y = true;
     out_spec->event.trigger_mode = TROPIC_EVENT_TRIGGER_ENTER;
     out_spec->event.trigger_once = true;
     out_spec->event.axis[2] = 1.0f;
@@ -297,6 +443,7 @@ static bool parse_common_object(cJSON *json_object,
     out_spec->rotation[0] = (float)json_number_or_default(rot, "x", 0.0);
     out_spec->rotation[1] = (float)json_number_or_default(rot, "y", 0.0);
     out_spec->rotation[2] = (float)json_number_or_default(rot, "z", 0.0);
+    parse_track_placement(json_object, &out_spec->placement);
 
     return true;
 }
@@ -438,13 +585,19 @@ LevelSpec* parseLevel(const char* path, int* out_num_objects)
         cJSON *music = metadata ? cJSON_GetObjectItemCaseSensitive(metadata, "music_path") : NULL;
         cJSON *speed = metadata ? cJSON_GetObjectItemCaseSensitive(metadata, "play_speed") : NULL;
 
+        if (!music && metadata) {
+            music = cJSON_GetObjectItemCaseSensitive(metadata, "music");
+        }
+
         spec->game_title = cJSON_IsString(title) && title->valuestring ? strdup(title->valuestring) : strdup("Untitled Game");
         spec->level_name = cJSON_IsString(name) && name->valuestring ? strdup(name->valuestring) : strdup("Untitled Level");
         spec->music_path = cJSON_IsString(music) && music->valuestring ? strdup(music->valuestring) : strdup("");
         spec->play_speed = cJSON_IsNumber(speed) ? speed->valuedouble : 0.0;
+        parse_beat_grid_metadata(metadata, &spec->beat_grid);
     }
 
     if (!spec->game_title || !spec->level_name || !spec->music_path) goto parse_failed;
+    if (!parse_track_anchors(json, &spec->track_anchors, &spec->track_anchor_count)) goto parse_failed;
     if (!parse_object_group(json, "platforms", "platform", true, false, &spec->platforms, &spec->platform_count, &uid_registry, &uid_count)) goto parse_failed;
     if (!parse_object_group(json, "spikes", "spike", false, false, &spec->spikes, &spec->spikes_count, &uid_registry, &uid_count)) goto parse_failed;
     if (!parse_object_group(json, "jumppads", "jumppad", false, false, &spec->jumppads, &spec->jumppads_count, &uid_registry, &uid_count)) goto parse_failed;
@@ -476,6 +629,7 @@ ObjectSpec* levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_
 
     if (engine) {
         TropicGameState* state = Tropic_getGameState(engine);
+        Scene *scene = Tropic_getCurrentScene(engine);
         if (state) {
             if (state->game_title) free(state->game_title);
             if (state->level_name) free(state->level_name);
@@ -484,6 +638,24 @@ ObjectSpec* levelspec_to_objects(LevelSpec* spec, TropicID engine, int* out_num_
             state->level_name = spec->level_name ? strdup(spec->level_name) : strdup("Untitled Level");
             state->music_path = spec->music_path ? strdup(spec->music_path) : strdup("");
             state->play_speed = (float)spec->play_speed;
+        }
+        if (scene) {
+            memcpy(&scene->beat_grid, &spec->beat_grid, sizeof(scene->beat_grid));
+            glm_vec3_copy(scene->beat_grid.origin, scene->base_track_frame.origin);
+            glm_vec3_copy(scene->beat_grid.initial_right, scene->base_track_frame.right);
+            glm_vec3_copy(scene->beat_grid.initial_up, scene->base_track_frame.up);
+            glm_vec3_copy(scene->beat_grid.initial_forward, scene->base_track_frame.forward);
+            glm_vec3_copy(scene->base_track_frame.origin, scene->current_track_frame.origin);
+            glm_vec3_copy(scene->base_track_frame.right, scene->current_track_frame.right);
+            glm_vec3_copy(scene->base_track_frame.up, scene->current_track_frame.up);
+            glm_vec3_copy(scene->base_track_frame.forward, scene->current_track_frame.forward);
+            if (scene->track_anchors) {
+                vector_free(scene->track_anchors);
+                scene->track_anchors = NULL;
+            }
+            for (size_t i = 0; i < spec->track_anchor_count; ++i) {
+                vector_push_back(scene->track_anchors, spec->track_anchors[i]);
+            }
         }
     }
 
@@ -539,6 +711,7 @@ void level_free(LevelSpec *spec)
     if (spec->game_title) free(spec->game_title);
     if (spec->level_name) free(spec->level_name);
     if (spec->music_path) free(spec->music_path);
+    if (spec->track_anchors) free(spec->track_anchors);
     if (spec->platforms) free(spec->platforms);
     if (spec->spikes) free(spec->spikes);
     if (spec->jumppads) free(spec->jumppads);

@@ -26,6 +26,8 @@ int main(int argc, char* argv[])
     EngineTestLoopState loop_state = {0};
     EngineTestRenderResources render_resources = {0};
     TropicID tropicEngine = Tropic_create();
+    TropicGameState* game_state = NULL;
+
     CameraID camera_id;
     ObjectID player = 0;
     ObjectSpec* objects = NULL;
@@ -92,6 +94,16 @@ int main(int argc, char* argv[])
     if (!_load_test_level(tropicEngine, &objects, &num_objects))
     {
         goto cleanup;
+    }
+
+    game_state = Tropic_getGameState(tropicEngine);
+    if (game_state && game_state->music_path && game_state->music_path[0] != '\0')
+    {
+        if (!Tropic_LoadMusic(tropicEngine, game_state->music_path))
+        {
+            fprintf(stderr, "Failed to load level music: %s\n", game_state->music_path);
+            goto cleanup;
+        }
     }
 
     Tropic_loadObjects(tropicEngine, objects, num_objects);
@@ -161,6 +173,15 @@ int main(int argc, char* argv[])
 	//Tropic_spinCamera(tropicEngine, camera_id, (vec3) { 0.0f, 0.0f, 1.0f }, 270.0f, 1.0f);
 	//Tropic_spinWorldAroundObject(tropicEngine, player, (vec3) { 0.0f, 0.0f, 1.0f }, 360.0f, 2.0f);
 
+    if (game_state && game_state->music_path && game_state->music_path[0] != '\0')
+    {
+        if (!Tropic_StopMusic(tropicEngine) || !Tropic_PlayMusic(tropicEngine))
+        {
+            fprintf(stderr, "Failed to start level music playback.\n");
+            goto cleanup;
+        }
+    }
+
     while (Tropic_Update(tropicEngine))
     {
         double current_time = Tropic_getTime();
@@ -179,6 +200,17 @@ int main(int argc, char* argv[])
             if (loop_state.paused)
             {
                 loop_state.physics_accumulator = 0.0;
+                if (game_state && game_state->music_path && game_state->music_path[0] != '\0')
+                {
+                    (void)Tropic_PauseMusic(tropicEngine);
+                }
+            }
+            else
+            {
+                if (game_state && game_state->music_path && game_state->music_path[0] != '\0')
+                {
+                    (void)Tropic_PlayMusic(tropicEngine);
+                }
             }
         }
 
