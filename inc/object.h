@@ -7,6 +7,7 @@
 #include "tropic_datatypes.h"
 #include "material.h"
 #include "mesh.h"
+#include "beat_grid.h"
 
 typedef struct sScene Scene;
 typedef struct sObject Object;
@@ -126,6 +127,7 @@ typedef struct sObjectSpec
     vec3 position;
     vec3 scale;
     vec3 rotation;
+    TropicTrackPlacement placement;
     TropicEventSpec event;
 } ObjectSpec;
 
@@ -140,6 +142,7 @@ struct sObject
     Position pos;
     Scale scale;
     Rotation rot;
+    TropicTrackPlacement placement;
     TropicEventSpec event;
     TropicCollider collider;
     TropicPhysicsBody body;

@@ -5,21 +5,25 @@
 #include <cjson/cJSON.h>
 #include "tropic.h"
 #include "object.h"
+#include "beat_grid.h"
 
 typedef struct sLevelSpec
 {
-    char *game_title;
-    char *level_name;
-    char *music_path;
+    char* game_title;
+    char* level_name;
+    char* music_path;
     double play_speed;
+
+    TropicBeatGridSettings beat_grid;
+
     size_t platform_count;
-    ObjectSpec *platforms;
+    ObjectSpec* platforms;
     size_t spikes_count;
-    ObjectSpec *spikes;
+    ObjectSpec* spikes;
     size_t jumppads_count;
-    ObjectSpec *jumppads;
+    ObjectSpec* jumppads;
     size_t events_count;
-    ObjectSpec *events;
+    ObjectSpec* events;
 } LevelSpec;
 
 LevelSpec* parseLevel(const char* path, int* out_num_objects);

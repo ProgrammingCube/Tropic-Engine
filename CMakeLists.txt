@@ -44,7 +44,7 @@ if(NOT ENGINE_SOURCES)
 	message(WARNING "No C sources found in ${CMAKE_CURRENT_SOURCE_DIR}/src")
 endif()
 
-add_library(tropic STATIC ${ENGINE_SOURCES})
+add_library(tropic STATIC ${ENGINE_SOURCES} "inc/beat_grid.h")
 
 target_include_directories(tropic PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/inc)
 

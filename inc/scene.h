@@ -4,6 +4,7 @@
 #include <vector.h>
 #include "object.h"
 #include "handles.h"
+#include "beat_grid.h"
 
 typedef struct sTropic Tropic;
 
@@ -34,6 +35,11 @@ typedef struct sScene
     vec3 gravity;
     mat3 world_up; /* 3x3 matrix representing the world's basis, used for orienting objects and cameras. */
     TropicWorldSpinState world_spin;
+
+    TropicBeatGridSettings beat_grid;
+    TropicTrackFrame base_track_frame;
+    TropicTrackFrame current_track_frame;
+    vector(TropicTrackAnchor) track_anchors;
 
     // Add more fields as needed for your scene
     void (*on_enter)(struct sScene* self);
